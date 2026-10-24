@@ -6,8 +6,9 @@
 import { portsState } from "./ports-state.js?v=3";
 import { PortsRenderer } from "./ports-renderer.js";
 import { ChargingModal } from "./charging-modal.js";
-import { telemetryStore } from "./telemetry-store.js?v=4";
+import { telemetryStore } from "./telemetry-store.js?v=5";
 import { kioskPreferences } from "./kiosk-preferences.js?v=4";
+import { soundAlerts } from "./sound-alerts.js?v=1";
 
 export class ChargingPortsController {
   constructor(containerId = "charging-ports-container") {
@@ -17,6 +18,9 @@ export class ChargingPortsController {
     this.modal = null;
     this.state = portsState;
     this.telemetry = telemetryStore;
+    this.occupiedPortIds = new Set();
+    this.portSoundsReady = false;
+    this.portSoundFallbackTimer = null;
   }
 
   init() {
@@ -38,6 +42,11 @@ export class ChargingPortsController {
 
     // Bind state events
     this._bindStateEvents();
+    this._captureOccupiedPorts();
+    this.portSoundFallbackTimer = setTimeout(() => {
+      this._captureOccupiedPorts();
+      this.portSoundsReady = true;
+    }, 2500);
 
     // Apply simulated or hardware-provided energy policy.
     this._applyEnergyPolicy(this.telemetry.getSnapshot());
@@ -85,6 +94,7 @@ export class ChargingPortsController {
     // Port status changed (available <-> in-use)
     this.state.addEventListener("port-status-changed", (e) => {
       const { port } = e.detail;
+      this._playPortTransition(port);
       this.renderer.updatePortCard(port, this.state);
       this.renderer.updateDashboardCounters(this.state);
       this._applyEnergyPolicy(this.telemetry.getSnapshot());
@@ -112,7 +122,33 @@ export class ChargingPortsController {
       this.renderer.render(this.state);
       this.renderer.updateDashboardCounters(this.state);
       this._applyEnergyPolicy(this.telemetry.getSnapshot());
+      if (!this.portSoundsReady) {
+        queueMicrotask(() => {
+          clearTimeout(this.portSoundFallbackTimer);
+          this._captureOccupiedPorts();
+          this.portSoundsReady = true;
+        });
+      }
     });
+  }
+
+  _captureOccupiedPorts() {
+    this.occupiedPortIds = new Set(
+      this.state.getAllPorts()
+        .filter(port => port.status === "in-use")
+        .map(port => port.id)
+    );
+  }
+
+  _playPortTransition(port) {
+    const wasOccupied = this.occupiedPortIds.has(port.id);
+    const isOccupied = port.status === "in-use";
+
+    if (isOccupied) this.occupiedPortIds.add(port.id);
+    else this.occupiedPortIds.delete(port.id);
+
+    if (!this.portSoundsReady || wasOccupied === isOccupied) return;
+    soundAlerts.play(isOccupied ? "connected" : "disconnected");
   }
 
   _isPortAllowed(port, snapshot) {

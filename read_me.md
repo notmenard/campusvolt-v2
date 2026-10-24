@@ -91,7 +91,7 @@ contract, safety requirements, and the pre-hardware test script.
 - Physical relay switching
 - Real coin acceptor and GCash verification
 - Physical station deployment and heartbeat monitoring
-- Sound and low-battery alert output
+- Low-battery banner and physical buzzer output
 - Trained Edge-ML ANN inference
 
 ## Mobile website
@@ -200,14 +200,14 @@ The Settings page contains:
 - Screen brightness: Auto, 100%, or 60%
 - Text-size slider
 - English/Filipino language selection
-- Confirmation-sound toggle
+- Station-sound toggle for charging and battery mode alerts
 - Low-battery-alert toggle
 - `CampusVolt-AP` connectivity row
 - Cloud-sync toggle
 - Link to the telemetry simulator
 - Report Issue and About actions
 
-Text size, brightness, language, and the Demonstration Mode switch are functional and stored locally. The action buttons show demonstration toasts. `CampusVolt-AP`, cloud sync, issue dispatch, sound output, and alert output are placeholders until their hardware or backend services are implemented.
+Text size, brightness, language, station sounds, and the Demonstration Mode switch are functional and stored locally. Charging start/end and battery mode transitions use the bundled MP3 alerts. The action buttons show demonstration toasts. `CampusVolt-AP`, issue dispatch, the low-battery banner, and physical buzzer output remain placeholders until their hardware or backend services are implemented.
 
 #### Demonstration Mode switch
 

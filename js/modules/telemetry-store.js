@@ -1,4 +1,5 @@
 import { deriveEnergyPolicy } from "./energy-policy.js?v=4";
+import { getEnergyAlertName, soundAlerts } from "./sound-alerts.js?v=1";
 
 const STORAGE_KEY = "cv_station_telemetry_v1";
 const HISTORY_KEY = "cv_station_telemetry_history_v1";
@@ -140,6 +141,7 @@ class TelemetryStore extends EventTarget {
     super();
     this.channel = null;
     this.snapshot = this._load();
+    this.currentEnergyAlert = getEnergyAlertName(this.snapshot);
 
     if (typeof BroadcastChannel !== "undefined") {
       try {
@@ -177,6 +179,12 @@ class TelemetryStore extends EventTarget {
   }
 
   _emit() {
+    const nextEnergyAlert = getEnergyAlertName(this.snapshot);
+    if (nextEnergyAlert && nextEnergyAlert !== this.currentEnergyAlert) {
+      soundAlerts.play(nextEnergyAlert);
+    }
+    this.currentEnergyAlert = nextEnergyAlert;
+
     this.dispatchEvent(new CustomEvent("telemetry-changed", {
       detail: { snapshot: this.getSnapshot() },
     }));

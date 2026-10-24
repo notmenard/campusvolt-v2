@@ -1,6 +1,6 @@
 // CampusVolt Station Telemetry Controller (Information Page)
 import { portsState } from "./modules/ports-state.js?v=3";
-import { telemetryStore } from "./modules/telemetry-store.js?v=4";
+import { telemetryStore } from "./modules/telemetry-store.js?v=5";
 import { kioskPreferences } from "./modules/kiosk-preferences.js?v=3";
 
 const text = (id, value) => {

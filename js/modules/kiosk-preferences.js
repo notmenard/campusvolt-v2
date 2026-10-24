@@ -27,6 +27,14 @@ class KioskPreferences extends EventTarget {
           return;
         }
 
+        if (event.key === "cv_sound") {
+          this.soundEnabled = event.newValue !== "false";
+          this.dispatchEvent(new CustomEvent("sound-enabled-changed", {
+            detail: { enabled: this.soundEnabled },
+          }));
+          return;
+        }
+
         if (event.key === "cv_demo_mode") {
           this.demoModeEnabled = event.newValue !== "false" && isDemoAuthorized();
           this.applyDemoMode();
@@ -101,6 +109,18 @@ class KioskPreferences extends EventTarget {
 
   getLanguage() {
     return i18n.getLanguage();
+  }
+
+  setSoundEnabled(enabled) {
+    this.soundEnabled = Boolean(enabled);
+    localStorage.setItem("cv_sound", String(this.soundEnabled));
+    this.dispatchEvent(new CustomEvent("sound-enabled-changed", {
+      detail: { enabled: this.soundEnabled },
+    }));
+  }
+
+  isSoundEnabled() {
+    return this.soundEnabled;
   }
 
   setDemoMode(enabled) {

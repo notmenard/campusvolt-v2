@@ -126,8 +126,8 @@
             <!-- Row 1: Confirmation sound -->
             <div class="settings-row">
               <div class="settings-row__info">
-                <h3 class="settings-row__title" data-i18n="row_sound">Confirmation sound</h3>
-                <p class="settings-row__desc" data-i18n="row_sound_desc">Plays a short tone when charging starts</p>
+                <h3 class="settings-row__title" data-i18n="row_sound">Station sounds</h3>
+                <p class="settings-row__desc" data-i18n="row_sound_desc">Charging and battery mode voice alerts</p>
               </div>
               <label class="toggle-switch">
                 <input type="checkbox" id="toggle-sound" checked aria-label="Toggle confirmation sound">
@@ -290,6 +290,15 @@
         showToast(`Brightness mode: ${btn.textContent.trim()}`);
       });
     });
+
+    const soundToggle = document.getElementById("toggle-sound");
+    if (soundToggle) {
+      soundToggle.checked = kioskPreferences.isSoundEnabled();
+      soundToggle.addEventListener("change", () => {
+        kioskPreferences.setSoundEnabled(soundToggle.checked);
+        showToast(soundToggle.checked ? "Station sounds enabled" : "Station sounds disabled");
+      });
+    }
 
     // 4. Demonstration mode
     const demoDescription = document.getElementById("demo-mode-description");

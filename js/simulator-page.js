@@ -1,7 +1,7 @@
 import { kioskPreferences } from "./modules/kiosk-preferences.js?v=4";
 import { requestDemoAuthorization } from "./modules/demo-auth.js?v=1";
-import { telemetryStore } from "./modules/telemetry-store.js?v=4";
-import { SIMULATION_SCENARIOS, TelemetrySimulator } from "./modules/telemetry-simulator.js";
+import { telemetryStore } from "./modules/telemetry-store.js?v=5";
+import { SIMULATION_SCENARIOS, TelemetrySimulator } from "./modules/telemetry-simulator.js?v=2";
 
 const simulator = new TelemetrySimulator(telemetryStore);
 const byId = (id) => document.getElementById(id);
