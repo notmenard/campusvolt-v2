@@ -575,21 +575,30 @@
 }
 
 .payment-method-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 18px;
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 14px;
-  background: linear-gradient(135deg, var(--cv-teal-accent) 0%, #a8e062 100%);
-  color: #0c1a15;
-  box-shadow: 0 6px 16px rgba(47, 165, 140, 0.3);
+  overflow: hidden;
+  background: linear-gradient(145deg, rgba(168, 224, 98, 0.12), rgba(47, 165, 140, 0.08));
+  border: 1px solid rgba(var(--cv-green-rgb), 0.2);
+  box-shadow: 0 6px 16px rgba(47, 165, 140, 0.18);
 }
 
-.payment-method-icon svg {
-  width: 30px;
-  height: 30px;
+.payment-method-image {
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 7px rgba(2, 12, 10, 0.3));
+}
+
+.payment-method-image--cash {
+  width: 50px;
+  height: 50px;
 }
 
 .payment-method-title {

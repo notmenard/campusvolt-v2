@@ -253,10 +253,7 @@ export class ChargingModal {
             <!-- Cash Option -->
             <button type="button" class="payment-method-card" id="btn-select-cash" data-method="Cash">
               <div class="payment-method-icon payment-method-icon--cash" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="9"/>
-                  <path d="M12 7v10M9 9h6M9 12h6"/>
-                </svg>
+                <img class="payment-method-image payment-method-image--cash" src="../images/payment-cash-campusvolt.png?v=1" alt="">
               </div>
               <h3 class="payment-method-title">${t("modal_cash_title")}</h3>
               <p class="payment-method-sub">${t("modal_cash_sub")}</p>
@@ -265,12 +262,7 @@ export class ChargingModal {
             <!-- GCash Option -->
             <button type="button" class="payment-method-card" id="btn-select-gcash" data-method="GCash">
               <div class="payment-method-icon payment-method-icon--gcash" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="3" width="7" height="7" rx="1.5"/>
-                  <rect x="14" y="3" width="7" height="7" rx="1.5"/>
-                  <rect x="3" y="14" width="7" height="7" rx="1.5"/>
-                  <path d="M14 14h2v2h-2zM18 14h3v3h-3zM14 18h3v3h-3zM19 19v2M14 16v2"/>
-                </svg>
+                <img class="payment-method-image payment-method-image--gcash" src="../images/payment-gcash-campusvolt.png?v=1" alt="">
               </div>
               <h3 class="payment-method-title">${t("modal_gcash_title")}</h3>
               <p class="payment-method-sub">${t("modal_gcash_sub")}</p>
