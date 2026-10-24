@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hmac
 import json
+import math
 import mimetypes
 import os
 import threading
@@ -33,8 +34,89 @@ PORT_IDS = {
 }
 STATE_LOCK = threading.RLock()
 HARDWARE_TTL_MS = 30_000
+STATION_SCHEMA_VERSION = 1
 STATION_ID = os.environ.get("CAMPUSVOLT_STATION_ID", "station-01")
 STATION_API_KEY = os.environ.get("CAMPUSVOLT_STATION_API_KEY", "")
+RELAY_COMMAND_LEASE_MS = 15_000
+
+
+def _bounded_number(value: object, minimum: float, maximum: float, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a number from {minimum} to {maximum}.")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field_name} must be a number from {minimum} to {maximum}.") from error
+    if not math.isfinite(number) or number < minimum or number > maximum:
+        raise ValueError(f"{field_name} must be a number from {minimum} to {maximum}.")
+    return number
+
+
+def _optional_number(value: object, minimum: float, maximum: float, field_name: str) -> float | None:
+    return None if value is None else _bounded_number(value, minimum, maximum, field_name)
+
+
+def _required_boolean(value: object, field_name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be true or false.")
+    return value
+
+
+def _normalize_channel(source: object, port_id: str) -> dict:
+    if not isinstance(source, dict):
+        raise ValueError(f"channels.{port_id} must be an object.")
+    return {
+        "inUse": _required_boolean(source.get("inUse"), f"channels.{port_id}.inUse"),
+        "watts": _bounded_number(source.get("watts"), 0, 500, f"channels.{port_id}.watts"),
+        "voltageV": _bounded_number(source.get("voltageV"), 0, 300, f"channels.{port_id}.voltageV"),
+        "currentA": _bounded_number(source.get("currentA"), 0, 20, f"channels.{port_id}.currentA"),
+        "relayOn": _required_boolean(source.get("relayOn"), f"channels.{port_id}.relayOn"),
+        "fault": str(source.get("fault")).strip()[:80] if source.get("fault") else None,
+    }
+
+
+def _normalize_telemetry(source: object) -> dict | None:
+    if source is None:
+        return None
+    if not isinstance(source, dict):
+        raise ValueError("telemetry must be an object.")
+    battery = source.get("battery")
+    solar = source.get("solar")
+    if not isinstance(battery, dict):
+        raise ValueError("telemetry.battery must be an object.")
+    if not isinstance(solar, dict):
+        raise ValueError("telemetry.solar must be an object.")
+
+    power_w = _bounded_number(battery.get("powerW"), -2000, 2000, "telemetry.battery.powerW")
+    status = battery.get("status") or ("charging" if power_w > 5 else "discharging" if power_w < -5 else "idle")
+    return {
+        "battery": {
+            "connected": _required_boolean(battery.get("connected"), "telemetry.battery.connected"),
+            "soc": _bounded_number(battery.get("soc"), 0, 100, "telemetry.battery.soc"),
+            "voltageV": _bounded_number(battery.get("voltageV"), 0, 100, "telemetry.battery.voltageV"),
+            "currentA": _bounded_number(battery.get("currentA"), -200, 200, "telemetry.battery.currentA"),
+            "powerW": power_w,
+            "temperatureC": _bounded_number(battery.get("temperatureC"), -40, 120, "telemetry.battery.temperatureC"),
+            "protection": str(battery.get("protection") or "unknown").strip()[:40],
+            "status": str(status).strip()[:40],
+            "ratedCapacityAh": _optional_number(battery.get("ratedCapacityAh"), 1, 2000, "telemetry.battery.ratedCapacityAh"),
+            "ratedEnergyWh": _optional_number(battery.get("ratedEnergyWh"), 1, 100000, "telemetry.battery.ratedEnergyWh"),
+            "remainingAh": _optional_number(battery.get("remainingAh"), 0, 2000, "telemetry.battery.remainingAh"),
+            "remainingEnergyWh": _optional_number(battery.get("remainingEnergyWh"), 0, 100000, "telemetry.battery.remainingEnergyWh"),
+            "healthPercent": _optional_number(battery.get("healthPercent"), 0, 100, "telemetry.battery.healthPercent"),
+            "cycleCount": _optional_number(battery.get("cycleCount"), 0, 1000000, "telemetry.battery.cycleCount"),
+            "cellMinVoltageV": _optional_number(battery.get("cellMinVoltageV"), 0, 6, "telemetry.battery.cellMinVoltageV"),
+            "cellMaxVoltageV": _optional_number(battery.get("cellMaxVoltageV"), 0, 6, "telemetry.battery.cellMaxVoltageV"),
+            "cellDeltaMv": _optional_number(battery.get("cellDeltaMv"), 0, 6000, "telemetry.battery.cellDeltaMv"),
+        },
+        "solar": {
+            "powerW": _bounded_number(solar.get("powerW"), 0, 5000, "telemetry.solar.powerW"),
+            "energyTodayWh": _optional_number(solar.get("energyTodayWh"), 0, 1000000, "telemetry.solar.energyTodayWh"),
+            "peakPowerW": _optional_number(solar.get("peakPowerW"), 0, 5000, "telemetry.solar.peakPowerW"),
+            "panelVoltageV": _optional_number(solar.get("panelVoltageV"), 0, 200, "telemetry.solar.panelVoltageV"),
+            "controllerState": str(solar.get("controllerState") or "unknown").strip()[:40],
+        },
+    }
 
 
 def _load_state() -> dict:
@@ -76,6 +158,34 @@ def _active_sessions() -> list[dict]:
     return active
 
 
+def _build_relay_control(sessions: list[dict], issued_at: int | None = None) -> dict:
+    issued_at = issued_at if issued_at is not None else int(time.time() * 1000)
+    active_by_port = {
+        session["portId"]: session
+        for session in sessions
+        if session.get("portId") in PORT_IDS and int(session.get("endTime", 0)) > issued_at
+    }
+    fingerprint = ",".join(
+        f"{port_id}@{int(active_by_port[port_id]['endTime'])}"
+        for port_id in sorted(active_by_port)
+    ) or "all-off"
+    valid_until = issued_at + RELAY_COMMAND_LEASE_MS
+    return {
+        "schemaVersion": 1,
+        "commandId": f"relay:{fingerprint}",
+        "issuedAt": issued_at,
+        "validUntil": valid_until,
+        "channels": {
+            port_id: {
+                "relayOn": port_id in active_by_port,
+                "authorizedUntil": min(int(active_by_port[port_id]["endTime"]), valid_until)
+                if port_id in active_by_port else None,
+            }
+            for port_id in PORT_IDS
+        },
+    }
+
+
 def _hardware_status() -> dict:
     hardware = _load_state().get("hardware", {})
     updated_at = int(hardware.get("updatedAt", 0)) if isinstance(hardware, dict) else 0
@@ -93,11 +203,18 @@ def _hardware_status() -> dict:
         }
     return {
         "online": online,
+        "schemaVersion": int(hardware.get("schemaVersion", 1)) if online else None,
         "stationId": STATION_ID,
+        "messageId": str(hardware.get("messageId", ""))[:80] or None if online else None,
+        "sentAt": hardware.get("sentAt") if online else None,
         "updatedAt": updated_at if online else None,
+        "latencyMs": max(0, updated_at - int(hardware["sentAt"]))
+        if online and hardware.get("sentAt") is not None else None,
         "firmwareVersion": str(hardware.get("firmwareVersion", "unknown"))[:40] if online else None,
+        "lastAppliedCommandId": str(hardware.get("lastAppliedCommandId", ""))[:256] or None if online else None,
         "rssi": hardware.get("rssi") if online else None,
         "channels": channels,
+        "telemetry": hardware.get("telemetry") if online and isinstance(hardware.get("telemetry"), dict) else None,
     }
 
 
@@ -220,35 +337,48 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
             if request.get("stationId") and str(request["stationId"]) != STATION_ID:
                 self._send_json(HTTPStatus.CONFLICT, {"error": f"This endpoint is configured for {STATION_ID}."})
                 return
+            if request.get("schemaVersion") is not None and int(request["schemaVersion"]) != STATION_SCHEMA_VERSION:
+                raise ValueError(f"schemaVersion must be {STATION_SCHEMA_VERSION}.")
+            supplied_channels = request.get("channels")
+            if not isinstance(supplied_channels, dict):
+                raise ValueError("channels must be an object containing all six channel IDs.")
             channels = {}
-            supplied_channels = request.get("channels", {})
             for port_id in PORT_IDS:
-                source = supplied_channels.get(port_id, {}) if isinstance(supplied_channels, dict) else {}
-                watts = min(500, max(0, float(source.get("watts", 0) or 0)))
-                channels[port_id] = {
-                    "inUse": bool(source.get("inUse", watts >= 1)),
-                    "watts": watts,
-                    "voltageV": min(300, max(0, float(source.get("voltageV", 0) or 0))),
-                    "currentA": min(20, max(0, float(source.get("currentA", 0) or 0))),
-                    "relayOn": bool(source.get("relayOn", False)),
-                    "fault": str(source.get("fault"))[:80] if source.get("fault") else None,
-                }
+                if port_id not in supplied_channels:
+                    raise ValueError(f"channels.{port_id} is required.")
+                channels[port_id] = _normalize_channel(supplied_channels[port_id], port_id)
+            telemetry = _normalize_telemetry(request.get("telemetry"))
+            sent_at = _optional_number(request.get("sentAt"), 0, 9_007_199_254_740_991, "sentAt")
+            rssi = _optional_number(request.get("rssi"), -120, 0, "rssi")
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             return
 
+        received_at = int(time.time() * 1000)
         hardware = {
+            "schemaVersion": STATION_SCHEMA_VERSION,
             "stationId": STATION_ID,
-            "updatedAt": int(time.time() * 1000),
+            "messageId": str(request.get("messageId") or f"{STATION_ID}-{received_at}").strip()[:80],
+            "sentAt": sent_at,
+            "updatedAt": received_at,
             "firmwareVersion": str(request.get("firmwareVersion", "unknown"))[:40],
-            "rssi": request.get("rssi"),
+            "lastAppliedCommandId": str(request.get("lastAppliedCommandId") or "").strip()[:256] or None,
+            "rssi": rssi,
             "channels": channels,
+            "telemetry": telemetry,
         }
         with STATE_LOCK:
             _save_hardware(hardware)
+            active_sessions = _active_sessions()
+            station = _hardware_status()
         self._send_json(
             HTTPStatus.ACCEPTED,
-            {"accepted": True, "heartbeatTtlSeconds": HARDWARE_TTL_MS // 1000, "station": _hardware_status()},
+            {
+                "accepted": True,
+                "heartbeatTtlSeconds": HARDWARE_TTL_MS // 1000,
+                "station": station,
+                "control": _build_relay_control(active_sessions, received_at),
+            },
         )
 
     def do_DELETE(self) -> None:

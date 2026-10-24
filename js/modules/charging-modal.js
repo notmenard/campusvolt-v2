@@ -10,7 +10,7 @@
 
 import { PRICING_CONFIG } from "./ports-config.js";
 import { i18n } from "./i18n.js";
-import { demoCoinInput } from "./demo-coin-input.js?v=1";
+import { demoCoinInput } from "./demo-coin-input.js?v=2";
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (character) => ({
@@ -358,10 +358,15 @@ export class ChargingModal {
 
             <div class="cash-demo-controls" role="group" aria-label="${t("cash_demo_label")}">
               <span class="cash-demo-controls__label">${t("cash_demo_label")}</span>
-              <button type="button" class="coin-btn" data-coin="1">+ ₱1</button>
-              <button type="button" class="coin-btn" data-coin="5">+ ₱5</button>
-              <button type="button" class="coin-btn coin-btn--recommended" data-coin="10">+ ₱10</button>
-              <button type="button" class="coin-btn" data-coin="20">+ ₱20</button>
+              <button type="button" class="coin-btn" data-add-coin="1">+ ₱1</button>
+              <button type="button" class="coin-btn" data-add-coin="5">+ ₱5</button>
+              <button type="button" class="coin-btn coin-btn--recommended" data-add-coin="10">+ ₱10</button>
+              <button type="button" class="coin-btn" data-add-coin="20">+ ₱20</button>
+              <span class="cash-demo-controls__label cash-demo-controls__label--remove">${t("cash_demo_remove_label")}</span>
+              <button type="button" class="coin-btn coin-btn--remove" data-remove-coin="1">− ₱1</button>
+              <button type="button" class="coin-btn coin-btn--remove" data-remove-coin="5">− ₱5</button>
+              <button type="button" class="coin-btn coin-btn--remove" data-remove-coin="10">− ₱10</button>
+              <button type="button" class="coin-btn coin-btn--remove" data-remove-coin="20">− ₱20</button>
             </div>
           </div>
 
@@ -391,10 +396,17 @@ export class ChargingModal {
     };
     this._updateCashDisplays();
 
-    this.dialog.querySelectorAll(".coin-btn").forEach(btn => {
+    this.dialog.querySelectorAll("[data-add-coin]").forEach(btn => {
       btn.addEventListener("click", () => {
-        const val = parseInt(btn.dataset.coin, 10);
+        const val = parseInt(btn.dataset.addCoin, 10);
         demoCoinInput.addCoin(this.currentPort?.id, val);
+      });
+    });
+
+    this.dialog.querySelectorAll("[data-remove-coin]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const val = parseInt(btn.dataset.removeCoin, 10);
+        demoCoinInput.removeCoin(this.currentPort?.id, val);
       });
     });
 
@@ -426,6 +438,9 @@ export class ChargingModal {
       elements.statusTextEl.textContent = hasCoins ? t("cash_received_status") : t("cash_waiting_status");
     }
     elements.statusEl?.classList.toggle("cash-input-status--received", hasCoins);
+    this.dialog.querySelectorAll("[data-remove-coin]").forEach((button) => {
+      button.disabled = !hasCoins;
+    });
     if (elements.procBtn) {
       elements.procBtn.textContent = `${t("cash_proceed_btn")} (₱${this.insertedCoins})`;
       elements.procBtn.hidden = !hasCoins;

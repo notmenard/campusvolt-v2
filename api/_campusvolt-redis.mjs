@@ -16,6 +16,7 @@ export const STATION_ID = String(process.env.CAMPUSVOLT_STATION_ID || "station-0
   .slice(0, 48);
 
 const HARDWARE_TTL_MS = 30_000;
+export const RELAY_COMMAND_LEASE_MS = 15_000;
 
 export function jsonResponse(status, payload) {
   return Response.json(payload, {
@@ -36,6 +37,36 @@ export function portKey(portId) {
 
 export function hardwareKey() {
   return `campusvolt:${STATION_ID}:hardware`;
+}
+
+export function buildRelayControl(sessions, issuedAt = Date.now()) {
+  const activeByPort = new Map(
+    (Array.isArray(sessions) ? sessions : [])
+      .filter((session) => PORT_ID_SET.has(session?.portId) && Number(session?.endTime) > issuedAt)
+      .map((session) => [session.portId, session]),
+  );
+  const fingerprint = [...activeByPort.values()]
+    .sort((left, right) => left.portId.localeCompare(right.portId))
+    .map((session) => `${session.portId}@${Number(session.endTime)}`)
+    .join(",") || "all-off";
+  const validUntil = issuedAt + RELAY_COMMAND_LEASE_MS;
+  const channels = {};
+
+  for (const portId of PORT_IDS) {
+    const session = activeByPort.get(portId);
+    channels[portId] = {
+      relayOn: Boolean(session),
+      authorizedUntil: session ? Math.min(Number(session.endTime), validUntil) : null,
+    };
+  }
+
+  return {
+    schemaVersion: 1,
+    commandId: `relay:${fingerprint}`,
+    issuedAt,
+    validUntil,
+    channels,
+  };
 }
 
 export async function redis(command) {
@@ -86,13 +117,27 @@ export function publicHardwareState(value) {
 
   return {
     online,
+    schemaVersion: online ? Number(hardware?.schemaVersion) || 1 : null,
     stationId: STATION_ID,
+    messageId: online ? String(hardware?.messageId || "").slice(0, 80) || null : null,
+    sentAt: online && hardware?.sentAt !== null && hardware?.sentAt !== undefined && Number.isFinite(Number(hardware.sentAt))
+      ? Number(hardware.sentAt)
+      : null,
     updatedAt: online ? updatedAt : null,
+    latencyMs: online && hardware?.sentAt !== null && hardware?.sentAt !== undefined && Number.isFinite(Number(hardware.sentAt))
+      ? Math.max(0, updatedAt - Number(hardware.sentAt))
+      : null,
     firmwareVersion: online ? String(hardware?.firmwareVersion || "unknown").slice(0, 40) : null,
+    lastAppliedCommandId: online
+      ? String(hardware?.lastAppliedCommandId || "").slice(0, 256) || null
+      : null,
     rssi: online && hardware?.rssi !== null && hardware?.rssi !== undefined && Number.isFinite(Number(hardware.rssi))
       ? Number(hardware.rssi)
       : null,
     channels,
+    telemetry: online && hardware?.telemetry && typeof hardware.telemetry === "object"
+      ? hardware.telemetry
+      : null,
   };
 }
 

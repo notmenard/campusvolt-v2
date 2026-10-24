@@ -650,7 +650,7 @@ body {
   align-items: flex-end;
   justify-content: space-between;
   gap: 28px;
-  padding: 3px 56px 24px 0;
+  padding: 3px 0 24px;
   border-bottom: 2px solid rgba(var(--cv-green-rgb), 0.42);
 }
 
@@ -691,6 +691,7 @@ body {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
+  margin-left: auto;
   gap: 14px;
 }
 
@@ -1076,14 +1077,16 @@ body {
   }
 
   .cv-profile {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: flex-start;
     gap: 14px;
-    padding-right: 42px;
+    padding-right: 0;
   }
 
   .cv-profile__aside {
-    flex-direction: column-reverse;
-    align-items: flex-end;
+    flex-direction: row;
+    align-items: center;
     gap: 8px;
   }
 

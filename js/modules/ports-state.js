@@ -6,6 +6,7 @@
  */
 
 import { PORT_CATEGORIES, PRICING_CONFIG } from "./ports-config.js";
+import { telemetryStore } from "./telemetry-store.js?v=6";
 
 const STORAGE_KEY_SESSIONS = "cv_charging_sessions";
 const STORAGE_KEY_PORTS = "cv_ports_status";
@@ -37,11 +38,16 @@ class PortsStateManager extends EventTarget {
     this.sharedSyncTimer = null;
     this.hardwareState = {
       online: false,
+      schemaVersion: null,
       stationId: "station-01",
+      messageId: null,
+      sentAt: null,
       updatedAt: null,
+      latencyMs: null,
       firmwareVersion: null,
       rssi: null,
       channels: {},
+      telemetry: null,
     };
 
     this._initializePorts();
@@ -73,13 +79,22 @@ class PortsStateManager extends EventTarget {
   _applyHardwareState(station) {
     const nextState = {
       online: Boolean(station?.online),
+      schemaVersion: Number(station?.schemaVersion) || null,
       stationId: String(station?.stationId || "station-01"),
+      messageId: station?.messageId ? String(station.messageId) : null,
+      sentAt: station?.sentAt !== null && station?.sentAt !== undefined && Number.isFinite(Number(station.sentAt))
+        ? Number(station.sentAt)
+        : null,
       updatedAt: Number(station?.updatedAt) || null,
+      latencyMs: station?.latencyMs !== null && station?.latencyMs !== undefined && Number.isFinite(Number(station.latencyMs))
+        ? Math.max(0, Number(station.latencyMs))
+        : null,
       firmwareVersion: station?.firmwareVersion || null,
       rssi: station?.rssi !== null && station?.rssi !== undefined && Number.isFinite(Number(station.rssi))
         ? Number(station.rssi)
         : null,
       channels: station?.channels && typeof station.channels === "object" ? station.channels : {},
+      telemetry: station?.telemetry && typeof station.telemetry === "object" ? station.telemetry : null,
     };
     const previousSignature = JSON.stringify(this.hardwareState);
     this.hardwareState = nextState;
@@ -98,8 +113,100 @@ class PortsStateManager extends EventTarget {
     }
 
     if (previousSignature !== JSON.stringify(nextState)) {
+      this._applyStationTelemetry(nextState);
       this._dispatch("station-hardware-changed", { station: this.getHardwareStatus() });
     }
+  }
+
+  _applyStationTelemetry(station) {
+    const current = telemetryStore.getSnapshot();
+    if (!station.online || !station.telemetry) {
+      if (current.source === "station-hardware" && current.system.bmsConnected) {
+        telemetryStore.update({
+          system: {
+            connected: Boolean(station.online),
+            bmsConnected: false,
+            latencyMs: station.latencyMs ?? current.system.latencyMs,
+          },
+        }, { recordHistory: false });
+      }
+      return;
+    }
+
+    const measuredBattery = station.telemetry.battery || {};
+    const measuredSolar = station.telemetry.solar || {};
+    const finiteOr = (value, fallback) => value !== null && value !== undefined && Number.isFinite(Number(value))
+      ? Number(value)
+      : fallback;
+    const ratedCapacityAh = finiteOr(measuredBattery.ratedCapacityAh, current.battery.ratedCapacityAh);
+    const ratedEnergyWh = finiteOr(measuredBattery.ratedEnergyWh, current.battery.ratedEnergyWh);
+    const soc = finiteOr(measuredBattery.soc, current.battery.soc);
+    const remainingAh = finiteOr(measuredBattery.remainingAh, ratedCapacityAh * soc / 100);
+    const remainingEnergyWh = finiteOr(measuredBattery.remainingEnergyWh, ratedEnergyWh * soc / 100);
+    const batteryPowerW = finiteOr(measuredBattery.powerW, 0);
+    const output = this.getLiveOutputTelemetry(station.updatedAt || Date.now());
+    const status = String(measuredBattery.status || (batteryPowerW > 5
+      ? "charging"
+      : batteryPowerW < -5 ? "discharging" : "idle"));
+    const estimatedMinutesToFull = status === "charging" && batteryPowerW > 0
+      ? Math.round(Math.max(0, ratedEnergyWh - remainingEnergyWh) / batteryPowerW * 60)
+      : null;
+    const estimatedRuntimeMinutes = status === "discharging" && batteryPowerW < 0
+      ? Math.round(remainingEnergyWh / Math.abs(batteryPowerW) * 60)
+      : null;
+
+    telemetryStore.update({
+      source: "station-hardware",
+      scenario: "physical-station",
+      battery: {
+        ratedCapacityAh,
+        ratedEnergyWh,
+        soc,
+        voltage: finiteOr(measuredBattery.voltageV, current.battery.voltage),
+        currentA: finiteOr(measuredBattery.currentA, current.battery.currentA),
+        powerW: batteryPowerW,
+        remainingAh,
+        remainingEnergyWh,
+        temperatureC: finiteOr(measuredBattery.temperatureC, current.battery.temperatureC),
+        healthPercent: finiteOr(measuredBattery.healthPercent, current.battery.healthPercent),
+        cycleCount: finiteOr(measuredBattery.cycleCount, current.battery.cycleCount),
+        status,
+        protection: String(measuredBattery.protection || "unknown"),
+        cellMinVoltage: finiteOr(measuredBattery.cellMinVoltageV, current.battery.cellMinVoltage),
+        cellMaxVoltage: finiteOr(measuredBattery.cellMaxVoltageV, current.battery.cellMaxVoltage),
+        cellDeltaMv: finiteOr(measuredBattery.cellDeltaMv, current.battery.cellDeltaMv),
+        estimatedMinutesToFull,
+        estimatedRuntimeMinutes,
+      },
+      solar: {
+        powerW: finiteOr(measuredSolar.powerW, current.solar.powerW),
+        energyTodayWh: finiteOr(measuredSolar.energyTodayWh, current.solar.energyTodayWh),
+        peakPowerW: finiteOr(measuredSolar.peakPowerW, current.solar.peakPowerW),
+        panelVoltage: finiteOr(measuredSolar.panelVoltageV, current.solar.panelVoltage),
+        controllerState: String(measuredSolar.controllerState || "unknown"),
+      },
+      load: {
+        totalPowerW: output.totalPowerW,
+        outputPowerW: output.totalPowerW,
+        demandPowerW: output.demandPowerW,
+        activePorts: output.activeChannels,
+        totalPorts: this.getTotalCount(),
+        source: output.source,
+        ac: output.ac,
+        dc: output.dc,
+      },
+      system: {
+        connected: true,
+        bmsConnected: Boolean(measuredBattery.connected),
+        running: false,
+        sequence: (Number(current.system.sequence) || 0) + 1,
+        messageId: station.messageId || `ESP32-${station.updatedAt}`,
+        transmittedAt: station.sentAt || station.updatedAt,
+        receivedAt: station.updatedAt,
+        latencyMs: station.latencyMs ?? 0,
+        updatedAt: station.updatedAt,
+      },
+    });
   }
 
   _isHardwareInUse(portId) {
@@ -645,6 +752,9 @@ class PortsStateManager extends EventTarget {
     return {
       ...this.hardwareState,
       channels: { ...this.hardwareState.channels },
+      telemetry: this.hardwareState.telemetry
+        ? JSON.parse(JSON.stringify(this.hardwareState.telemetry))
+        : null,
     };
   }
 

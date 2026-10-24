@@ -69,6 +69,18 @@ class DemoCoinInput extends EventTarget {
     });
   }
 
+  removeCoin(portId, denomination) {
+    if (!VALID_PORT_IDS.has(portId)) return this.getState();
+    const coin = Math.round(Number(denomination));
+    if (!Number.isFinite(coin) || coin <= 0) return this.getState();
+    const currentTotal = this.state.portId === portId ? this.state.total : 0;
+    return this._save({
+      portId,
+      total: Math.max(0, currentTotal - coin),
+      updatedAt: Date.now(),
+    });
+  }
+
   reset(portId = this.state.portId) {
     const safePortId = VALID_PORT_IDS.has(portId) ? portId : DEFAULT_STATE.portId;
     return this._save({ portId: safePortId, total: 0, updatedAt: Date.now() });

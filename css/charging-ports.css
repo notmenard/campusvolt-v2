@@ -772,6 +772,10 @@ html[data-demo-mode="on"] .cash-demo-controls {
   letter-spacing: 0.06em;
 }
 
+.cash-demo-controls__label--remove {
+  margin-top: 3px;
+}
+
 /* Shared cash/GCash controls retained for the digital-payment selector. */
 .coins-simulator-box {
   background: #142421;
@@ -1033,6 +1037,26 @@ html[data-demo-mode="on"] .cash-demo-controls {
   color: var(--cv-text-light);
   line-height: 1;
   font-variant-numeric: tabular-nums;
+}
+
+.coin-btn--remove {
+  border-color: rgba(255, 180, 84, 0.25);
+  color: #f6c96f;
+}
+
+.coin-btn--remove:hover {
+  background: rgba(255, 180, 84, 0.12);
+  border-color: rgba(255, 180, 84, 0.45);
+  color: #ffda8c;
+}
+
+.coin-btn:disabled,
+.coin-btn:disabled:hover {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--cv-text-dim);
 }
 
 .charging-timer-val--hardware {

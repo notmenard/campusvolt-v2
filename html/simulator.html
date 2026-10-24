@@ -9,9 +9,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="../css/simulator.css?v=2">
+  <link rel="stylesheet" href="../css/simulator.css?v=3">
   <link rel="stylesheet" href="../css/mobile.css?v=6">
-  <script type="module" src="../js/simulator-page.js?v=11"></script>
+  <script type="module" src="../js/simulator-page.js?v=13"></script>
 </head>
 
 <body>
@@ -103,11 +103,15 @@
           <strong id="coin-demo-total">₱0</strong>
         </div>
 
-        <div class="coin-demo-buttons" role="group" aria-label="Add demonstration coins">
+        <div class="coin-demo-buttons" role="group" aria-label="Adjust demonstration coins">
           <button class="button" type="button" data-demo-coin="1">+ ₱1</button>
           <button class="button" type="button" data-demo-coin="5">+ ₱5</button>
           <button class="button button--primary" type="button" data-demo-coin="10">+ ₱10</button>
           <button class="button" type="button" data-demo-coin="20">+ ₱20</button>
+          <button class="button button--remove" type="button" data-remove-demo-coin="1">− ₱1</button>
+          <button class="button button--remove" type="button" data-remove-demo-coin="5">− ₱5</button>
+          <button class="button button--remove" type="button" data-remove-demo-coin="10">− ₱10</button>
+          <button class="button button--remove" type="button" data-remove-demo-coin="20">− ₱20</button>
           <button class="button button--quiet" id="reset-demo-coins" type="button">Reset</button>
         </div>
       </div>

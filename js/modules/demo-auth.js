@@ -1,5 +1,5 @@
 const DEMO_AUTH_SESSION_KEY = "cv_demo_authorized";
-const DEMO_PASSWORD_SHA256 = "ed3b8bcea85db098a990a440b9edd40a5f6c024b26477db087de2c9880095877";
+const DEMO_PASSWORD_SHA256 = "338cdc2e954372ddd8b2f3c2ec3a545a868a9a0e4deacfb8892ffe76447d3b60";
 
 let authorizedInMemory = false;
 let pendingAuthorization = null;

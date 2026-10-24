@@ -3,9 +3,9 @@
  * Low-coupling coordinator wiring State, Renderer, and Modal via Event Delegation.
  */
 
-import { portsState } from "./ports-state.js?v=3";
+import { portsState } from "./ports-state.js?v=4";
 import { PortsRenderer } from "./ports-renderer.js";
-import { ChargingModal } from "./charging-modal.js?v=4";
+import { ChargingModal } from "./charging-modal.js?v=5";
 import { telemetryStore } from "./telemetry-store.js?v=6";
 import { kioskPreferences } from "./kiosk-preferences.js?v=4";
 import { soundAlerts } from "./sound-alerts.js?v=2";

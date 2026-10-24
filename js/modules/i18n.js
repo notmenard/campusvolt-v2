@@ -52,6 +52,7 @@ export const TRANSLATIONS = {
     cash_waiting_status: "Waiting for coins…",
     cash_received_status: "Coin accepted",
     cash_demo_label: "Demo coin input",
+    cash_demo_remove_label: "Remove demo coins",
     cash_rate_note: "₱1 = 1 minute of charging.",
 
     // Modal - GCash Flow
@@ -193,6 +194,7 @@ export const TRANSLATIONS = {
     cash_waiting_status: "Naghihintay ng barya…",
     cash_received_status: "Tinanggap ang barya",
     cash_demo_label: "Demo na paghuhulog",
+    cash_demo_remove_label: "Bawasan ang demo coins",
     cash_rate_note: "₱1 = 1 minuto ng pag-charge.",
 
     // Modal - GCash Flow

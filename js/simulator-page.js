@@ -1,8 +1,8 @@
 import { kioskPreferences } from "./modules/kiosk-preferences.js?v=4";
-import { requestDemoAuthorization } from "./modules/demo-auth.js?v=1";
+import { requestDemoAuthorization } from "./modules/demo-auth.js?v=2";
 import { telemetryStore } from "./modules/telemetry-store.js?v=6";
 import { SIMULATION_SCENARIOS, TelemetrySimulator } from "./modules/telemetry-simulator.js?v=3";
-import { demoCoinInput } from "./modules/demo-coin-input.js?v=1";
+import { demoCoinInput } from "./modules/demo-coin-input.js?v=2";
 
 const simulator = new TelemetrySimulator(telemetryStore);
 const byId = (id) => document.getElementById(id);
@@ -57,6 +57,9 @@ function renderDemoCoins(state = demoCoinInput.getState()) {
       ? `₱${state.total} ready for ${elements.coinPort?.selectedOptions?.[0]?.textContent || state.portId}.`
       : "Waiting for a demo coin.";
   }
+  document.querySelectorAll("[data-remove-demo-coin]").forEach((button) => {
+    button.disabled = state.total <= 0;
+  });
 }
 
 function applyDemoAvailability() {
@@ -197,6 +200,12 @@ elements.coinPort.addEventListener("change", () => {
 document.querySelectorAll("[data-demo-coin]").forEach((button) => {
   button.addEventListener("click", () => {
     demoCoinInput.addCoin(elements.coinPort.value, Number(button.dataset.demoCoin));
+  });
+});
+
+document.querySelectorAll("[data-remove-demo-coin]").forEach((button) => {
+  button.addEventListener("click", () => {
+    demoCoinInput.removeCoin(elements.coinPort.value, Number(button.dataset.removeDemoCoin));
   });
 });
 

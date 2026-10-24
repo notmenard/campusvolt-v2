@@ -10,3 +10,4 @@ __pycache__/
 .campusvolt-state.json
 .vscode/
 .idea/
+firmware/esp32-campusvolt/secrets.h

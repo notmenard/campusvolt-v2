@@ -56,7 +56,9 @@ multiple physical CampusVolt stations use separate channel keys.
 The hardware endpoint is `POST /api/station-status`. Add a private
 `CAMPUSVOLT_STATION_API_KEY` environment variable in Vercel, redeploy, and
 configure the same key in the ESP32 firmware. The ESP32 sends a complete sensor
-snapshot every 10 seconds and whenever a channel changes. Hardware state
+snapshot every five seconds and whenever a channel changes. Each accepted
+heartbeat returns a complete relay command with a 15-second safety lease.
+Hardware state
 expires after 30 seconds without a heartbeat so stale readings are not shown as
 live.
 
@@ -70,6 +72,7 @@ contract, safety requirements, and the pre-hardware test script.
 - Six interactive charging channels
 - Cash and GCash demonstration flows
 - Charging-session timers and early stopping
+- Paid-session relay authorization, early-stop commands, acknowledgement, and fail-closed leases
 - Daily connected-device and delivered-energy counters
 - Battery, solar, weather, load, and output telemetry displays
 - Normal, Conservation, and Survival Eco decisions
@@ -84,11 +87,11 @@ contract, safety requirements, and the pre-hardware test script.
 
 ### Still simulated or pending hardware integration
 
-- ESP32 firmware and final sensor/pin adapters (cloud endpoint is ready)
+- Final ESP32 sensor/pin adapters (a safe Arduino heartbeat starter is included)
 - `CampusVolt-AP` Wi-Fi access point
 - Gentai BMS Bluetooth data
 - Physical PZEM-004T and DC sensor installation/calibration
-- Physical relay switching
+- Final relay pin mapping and physical switching validation
 - Real coin acceptor and GCash verification
 - Physical station deployment and heartbeat monitoring
 - Low-battery banner and physical buzzer output
@@ -442,17 +445,26 @@ js/modules/i18n.js                English and Filipino text
 
 ## Connecting the real ESP32
 
-The dashboard and Vercel API now accept authenticated ESP32 heartbeats. Final
+The dashboard, local server, and Vercel API accept authenticated schema-v1
+ESP32 heartbeats containing all six channel readings plus optional battery/BMS
+and solar telemetry. Physical telemetry replaces the simulator as the dashboard
+and rule-based policy input while a fresh heartbeat is available. Final
 hardware integration requires:
 
-1. ESP32 firmware that reads the BMS and electrical sensors.
+1. Completing the sensor adapters in `firmware/esp32-campusvolt/` for the final schematic.
 2. Sensor adapters that emit the `docs/ESP32_STATION_API.md` schema.
 3. Optional ESP32 SoftAP setup for `CampusVolt-AP`.
 4. The station API key provisioned in Vercel and the ESP32.
-5. Relay-command acknowledgements and fail-safe handling.
-6. Real sent, received, and displayed timestamps for latency testing.
-7. Authentication and input validation for control commands.
-8. Cached/fallback behavior when Wi-Fi, the internet, weather service, or BMS becomes unavailable.
+5. Mapping the six relay pins and polarity from the final schematic.
+6. Calibrating and validating local over-current, thermal, BMS, and emergency-stop overrides.
+7. Cached/fallback behavior when Wi-Fi, the internet, weather service, or BMS becomes unavailable.
+
+Run the heartbeat contract tests with:
+
+```powershell
+node --test tests/*.test.mjs
+python -m unittest discover -s tests -p 'test_*.py'
+```
 
 A practical final architecture is:
 
