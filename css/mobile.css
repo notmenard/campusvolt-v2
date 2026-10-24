@@ -18,7 +18,7 @@
 
   body {
     min-width: 320px;
-    zoom: 1 !important;
+    zoom: var(--cv-font-scale, 1) !important;
     padding-bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px));
     overflow-x: hidden;
     -webkit-tap-highlight-color: transparent;
@@ -361,6 +361,18 @@
   .font-linear-slider {
     width: auto !important;
     flex: 1;
+    min-height: 44px;
+    touch-action: pan-y;
+  }
+
+  .font-linear-slider::-webkit-slider-thumb {
+    width: 24px;
+    height: 24px;
+  }
+
+  .font-linear-slider::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
   }
 
   .settings-toast {

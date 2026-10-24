@@ -1,7 +1,7 @@
 // CampusVolt Dashboard Main Controller
-import { initChargingPorts } from "./modules/charging-controller.js?v=5";
+import { initChargingPorts } from "./modules/charging-controller.js?v=6";
 import { portsState } from "./modules/ports-state.js?v=3";
-import { kioskPreferences } from "./modules/kiosk-preferences.js?v=3";
+import { kioskPreferences } from "./modules/kiosk-preferences.js?v=4";
 import { telemetryStore } from "./modules/telemetry-store.js?v=4";
 
 // -------------------------------------------------------------

@@ -7,7 +7,7 @@ import { portsState } from "./ports-state.js?v=3";
 import { PortsRenderer } from "./ports-renderer.js";
 import { ChargingModal } from "./charging-modal.js";
 import { telemetryStore } from "./telemetry-store.js?v=4";
-import { kioskPreferences } from "./kiosk-preferences.js?v=3";
+import { kioskPreferences } from "./kiosk-preferences.js?v=4";
 
 export class ChargingPortsController {
   constructor(containerId = "charging-ports-container") {

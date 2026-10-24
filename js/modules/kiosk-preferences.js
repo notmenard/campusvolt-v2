@@ -10,7 +10,7 @@ import { isDemoAuthorized } from "./demo-auth.js?v=1";
 class KioskPreferences extends EventTarget {
   constructor() {
     super();
-    this.fontScale = parseInt(localStorage.getItem("cv_font_scale") || "100", 10);
+    this.fontScale = this._normalizeFontScale(localStorage.getItem("cv_font_scale"));
     this.brightness = localStorage.getItem("cv_brightness") || "auto";
     this.soundEnabled = localStorage.getItem("cv_sound") !== "false"; // default true
     this.lowBatteryAlert = localStorage.getItem("cv_low_battery") !== "false";
@@ -18,14 +18,30 @@ class KioskPreferences extends EventTarget {
 
     if (typeof window !== "undefined") {
       window.addEventListener("storage", (event) => {
-        if (event.key !== "cv_demo_mode") return;
-        this.demoModeEnabled = event.newValue !== "false" && isDemoAuthorized();
-        this.applyDemoMode();
-        this.dispatchEvent(new CustomEvent("demo-mode-changed", {
-          detail: { enabled: this.demoModeEnabled },
-        }));
+        if (event.key === "cv_font_scale") {
+          this.fontScale = this._normalizeFontScale(event.newValue);
+          this.applyFontScale(this.fontScale);
+          this.dispatchEvent(new CustomEvent("font-scale-changed", {
+            detail: { percent: this.fontScale },
+          }));
+          return;
+        }
+
+        if (event.key === "cv_demo_mode") {
+          this.demoModeEnabled = event.newValue !== "false" && isDemoAuthorized();
+          this.applyDemoMode();
+          this.dispatchEvent(new CustomEvent("demo-mode-changed", {
+            detail: { enabled: this.demoModeEnabled },
+          }));
+        }
       });
     }
+  }
+
+  _normalizeFontScale(percent) {
+    const parsed = Number.parseInt(percent ?? "100", 10);
+    const safeValue = Number.isFinite(parsed) ? parsed : 100;
+    return Math.max(85, Math.min(135, safeValue));
   }
 
   init() {
@@ -36,20 +52,27 @@ class KioskPreferences extends EventTarget {
   }
 
   setFontScale(percent) {
-    const val = Math.max(80, Math.min(140, parseInt(percent, 10)));
+    const val = this._normalizeFontScale(percent);
     this.fontScale = val;
     localStorage.setItem("cv_font_scale", val.toString());
     this.applyFontScale(val);
+    this.dispatchEvent(new CustomEvent("font-scale-changed", {
+      detail: { percent: val },
+    }));
   }
 
   applyFontScale(percent) {
-    const scale = (percent / 100);
+    const normalizedPercent = this._normalizeFontScale(percent);
+    const scale = normalizedPercent / 100;
     document.documentElement.style.setProperty("--cv-font-scale", scale.toString());
     document.documentElement.style.fontSize = `${14 * scale}px`;
 
     const applyBodyZoom = () => {
       if (document.body) {
-        document.body.style.zoom = scale.toString();
+        // Mobile CSS previously forced zoom: 1 !important, silently disabling
+        // the accessibility control. Use the same priority so the selected
+        // scale wins on every viewport.
+        document.body.style.setProperty("zoom", scale.toString(), "important");
         document.body.style.setProperty("--cv-font-scale", scale.toString());
       }
     };

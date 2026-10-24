@@ -1,4 +1,4 @@
-import { kioskPreferences } from "./modules/kiosk-preferences.js?v=3";
+import { kioskPreferences } from "./modules/kiosk-preferences.js?v=4";
 import { requestDemoAuthorization } from "./modules/demo-auth.js?v=1";
 import { telemetryStore } from "./modules/telemetry-store.js?v=4";
 import { SIMULATION_SCENARIOS, TelemetrySimulator } from "./modules/telemetry-simulator.js";
