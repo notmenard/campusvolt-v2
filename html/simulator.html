@@ -9,9 +9,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="../css/simulator.css">
+  <link rel="stylesheet" href="../css/simulator.css?v=2">
   <link rel="stylesheet" href="../css/mobile.css?v=6">
-  <script type="module" src="../js/simulator-page.js?v=10"></script>
+  <script type="module" src="../js/simulator-page.js?v=11"></script>
 </head>
 
 <body>
@@ -70,6 +70,49 @@
         <p class="panel__description" id="scenario-description">Select a condition to update the simulated station.</p>
       </div>
       <div class="scenario-grid" id="scenario-grid"></div>
+    </section>
+
+    <section class="panel coin-demo-panel" aria-labelledby="coin-demo-heading">
+      <div class="panel__header">
+        <div>
+          <p class="eyebrow">Payment demonstration</p>
+          <h2 id="coin-demo-heading">Coin acceptor tool</h2>
+        </div>
+        <a class="preview-link" href="dashboard.html" target="_blank" rel="noopener">Open dashboard in another tab →</a>
+      </div>
+
+      <p class="coin-demo-panel__description">
+        Open the Cash payment tab for the same channel, then add coins here to demonstrate live coin detection.
+      </p>
+
+      <div class="coin-demo-controls">
+        <label class="coin-demo-field" for="coin-demo-port">
+          <span>Target channel</span>
+          <select id="coin-demo-port">
+            <option value="outlet-1">Outlet 1</option>
+            <option value="outlet-2">Outlet 2</option>
+            <option value="dc-type-c">Type-C</option>
+            <option value="dc-micro-usb">Micro USB</option>
+            <option value="dc-lightning">Lightning</option>
+            <option value="wireless-pad">Wireless pad</option>
+          </select>
+        </label>
+
+        <div class="coin-demo-total" aria-live="polite">
+          <span>Demo amount inserted</span>
+          <strong id="coin-demo-total">₱0</strong>
+        </div>
+
+        <div class="coin-demo-buttons" role="group" aria-label="Add demonstration coins">
+          <button class="button" type="button" data-demo-coin="1">+ ₱1</button>
+          <button class="button" type="button" data-demo-coin="5">+ ₱5</button>
+          <button class="button button--primary" type="button" data-demo-coin="10">+ ₱10</button>
+          <button class="button" type="button" data-demo-coin="20">+ ₱20</button>
+          <button class="button button--quiet" id="reset-demo-coins" type="button">Reset</button>
+        </div>
+      </div>
+
+      <p class="coin-demo-status" id="coin-demo-status" role="status">Waiting for a demo coin.</p>
     </section>
 
     <section class="control-grid">

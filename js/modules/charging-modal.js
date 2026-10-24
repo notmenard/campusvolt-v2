@@ -10,6 +10,7 @@
 
 import { PRICING_CONFIG } from "./ports-config.js";
 import { i18n } from "./i18n.js";
+import { demoCoinInput } from "./demo-coin-input.js?v=1";
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (character) => ({
@@ -319,6 +320,11 @@ export class ChargingModal {
     this.activeStep = "pay-cash";
     const port = this.currentPort;
     const t = (k) => i18n.t(k);
+    const demoCoins = demoCoinInput.getState();
+    if (document.documentElement.dataset.demoMode === "on" && demoCoins.portId === port.id) {
+      this.insertedCoins = demoCoins.total;
+      this.selectedDuration = demoCoins.total;
+    }
 
     this.dialog.innerHTML = `
       <div class="modal-card">
@@ -388,9 +394,7 @@ export class ChargingModal {
     this.dialog.querySelectorAll(".coin-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         const val = parseInt(btn.dataset.coin, 10);
-        window.dispatchEvent(new CustomEvent("campusvolt:coin-input", {
-          detail: { amount: val, portId: this.currentPort?.id },
-        }));
+        demoCoinInput.addCoin(this.currentPort?.id, val);
       });
     });
 

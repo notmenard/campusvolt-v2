@@ -2,6 +2,7 @@ import { kioskPreferences } from "./modules/kiosk-preferences.js?v=4";
 import { requestDemoAuthorization } from "./modules/demo-auth.js?v=1";
 import { telemetryStore } from "./modules/telemetry-store.js?v=6";
 import { SIMULATION_SCENARIOS, TelemetrySimulator } from "./modules/telemetry-simulator.js?v=3";
+import { demoCoinInput } from "./modules/demo-coin-input.js?v=1";
 
 const simulator = new TelemetrySimulator(telemetryStore);
 const byId = (id) => document.getElementById(id);
@@ -41,7 +42,22 @@ const elements = {
   chart: byId("history-chart"),
   emptyHistory: byId("empty-history"),
   disabledNotice: byId("demo-disabled-notice"),
+  coinPort: byId("coin-demo-port"),
+  coinTotal: byId("coin-demo-total"),
+  coinStatus: byId("coin-demo-status"),
 };
+
+function renderDemoCoins(state = demoCoinInput.getState()) {
+  if (elements.coinPort && document.activeElement !== elements.coinPort) {
+    elements.coinPort.value = state.portId;
+  }
+  if (elements.coinTotal) elements.coinTotal.textContent = `₱${state.total}`;
+  if (elements.coinStatus) {
+    elements.coinStatus.textContent = state.total > 0
+      ? `₱${state.total} ready for ${elements.coinPort?.selectedOptions?.[0]?.textContent || state.portId}.`
+      : "Waiting for a demo coin.";
+  }
+}
 
 function applyDemoAvailability() {
   const enabled = kioskPreferences.isDemoModeEnabled();
@@ -172,6 +188,21 @@ elements.forecast.addEventListener("change", () => simulator.setWeatherForecast(
 byId("start-simulation").addEventListener("click", () => simulator.start(Number(elements.speed.value)));
 byId("pause-simulation").addEventListener("click", () => simulator.pause());
 byId("reset-simulation").addEventListener("click", () => simulator.reset());
+
+elements.coinPort.addEventListener("change", () => {
+  demoCoinInput.selectPort(elements.coinPort.value);
+  renderDemoCoins();
+});
+
+document.querySelectorAll("[data-demo-coin]").forEach((button) => {
+  button.addEventListener("click", () => {
+    demoCoinInput.addCoin(elements.coinPort.value, Number(button.dataset.demoCoin));
+  });
+});
+
+byId("reset-demo-coins").addEventListener("click", () => {
+  demoCoinInput.reset(elements.coinPort.value);
+});
 elements.speed.addEventListener("change", () => {
   if (telemetryStore.getSnapshot().system.running) simulator.start(Number(elements.speed.value));
   else telemetryStore.update({ system: { speed: Number(elements.speed.value) } }, { recordHistory: false });
@@ -208,11 +239,13 @@ byId("export-history").addEventListener("click", () => {
 
 telemetryStore.addEventListener("telemetry-changed", (event) => render(event.detail.snapshot));
 kioskPreferences.addEventListener("demo-mode-changed", applyDemoAvailability);
+demoCoinInput.addEventListener("coin-input-changed", (event) => renderDemoCoins(event.detail));
 
 const initial = telemetryStore.getSnapshot();
 simulator.setInputs({ solarPowerW: initial.solar.powerW, loadPowerW: initial.load.totalPowerW });
 if (initial.system.running && kioskPreferences.isDemoModeEnabled()) simulator.start(initial.system.speed);
 render(telemetryStore.getSnapshot());
+renderDemoCoins();
 applyDemoAvailability();
 if (!kioskPreferences.isDemoModeEnabled()) {
   requestDemoAuthorization().then((authorized) => {
