@@ -5,8 +5,8 @@ const SOUND_URLS = Object.freeze({
   disconnected: new URL("../../audio/disconnected.mp3", import.meta.url).href,
   normal: new URL("../../audio/normal.mp3", import.meta.url).href,
   conservation: new URL("../../audio/conservation.mp3", import.meta.url).href,
-  survival: new URL("../../audio/survival.mp3", import.meta.url).href,
-  cutoff: new URL("../../audio/cutoff.mp3", import.meta.url).href,
+  survival: new URL("../../audio/cutoff.mp3", import.meta.url).href,
+  cutoff: new URL("../../audio/survival.mp3", import.meta.url).href,
 });
 
 const DEDUPE_WINDOW_MS = 1_500;

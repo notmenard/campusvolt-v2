@@ -1,5 +1,5 @@
 import { deriveEnergyPolicy } from "./energy-policy.js?v=4";
-import { getEnergyAlertName, soundAlerts } from "./sound-alerts.js?v=1";
+import { getEnergyAlertName, soundAlerts } from "./sound-alerts.js?v=2";
 
 const STORAGE_KEY = "cv_station_telemetry_v1";
 const HISTORY_KEY = "cv_station_telemetry_history_v1";
