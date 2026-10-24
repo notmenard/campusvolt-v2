@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1614">
+  <title>CampusVolt • Information</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="../css/information.css?v=8">
+  <link rel="stylesheet" href="../css/mobile.css?v=5">
+  <script type="module" src="../js/campusvolt-telemetry.js?v=12"></script>
+  <script type="module" src="../js/modules/kiosk-preferences.js?v=3"></script>
+  <script type="module" src="../js/information-interactions.js?v=6"></script>
+</head>
+
+<body>
+
+  <!-- ================= NAVBAR ================= -->
+  <header class="navbar">
+    <div class="container navbar__inner">
+      <a class="brand" href="../html/dashboard.html" aria-label="CampusVolt home">
+        <svg class="brand__logo" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+          <defs>
+            <linearGradient id="logo-gradient" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" style="stop-color: var(--accent-green)" />
+              <stop offset="1" stop-color="#2fa58c" />
+            </linearGradient>
+          </defs>
+          <path d="M16 2.5 4.5 6.6v8.2c0 7.2 4.7 12.4 11.5 14.7 6.8-2.3 11.5-7.5 11.5-14.7V6.6L16 2.5z"
+            fill="url(#logo-gradient)" />
+          <path d="M17.5 7.5 11 17h4.2l-.8 7L21 14.5h-4.4l.9-7z" fill="#0f1614" />
+        </svg>
+        <span>CampusVolt</span>
+      </a>
+
+      <nav aria-label="Primary">
+        <ul class="nav-links">
+          <li><a href="../html/dashboard.html" data-i18n="nav_dashboard">Dashboard</a></li>
+          <li><a href="../html/information.html" aria-current="page" data-i18n="nav_information">Information</a></li>
+          <li><a href="../html/settings.html" data-i18n="nav_settings">Settings</a></li>
+          <li><a href="../html/team.html" data-i18n="nav_team">The Team</a></li>
+        </ul>
+      </nav>
+
+      <div class="live-pill" id="connection-status" role="status">
+        <span class="live-pill__dot" id="connection-dot" aria-hidden="true"></span>
+        <span data-i18n="nav_live">Live • <span id="connection-name">CampusVolt-AP</span></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- ================= PAGE HEADER (FIGMA 2. INFORMATION) ================= -->
+    <section class="page-header">
+      <p class="page-header__eyebrow">Solar monitoring</p>
+      <h1 class="page-header__title">Station status & how it works</h1>
+      <p class="page-header__subtitle">Live energy data from this kiosk, plus a quick guide to using it.</p>
+    </section>
+
+    <aside class="telemetry-notice demo-only" id="telemetry-notice" aria-live="polite">
+      <div>
+        <span class="telemetry-notice__badge" id="telemetry-source-badge">Simulation</span>
+        <strong id="telemetry-policy-mode">Normal Mode</strong>
+        <span id="telemetry-policy-reason">No Conservation or Survival Eco trigger is active, so full service remains available.</span>
+      </div>
+      <a href="../html/simulator.html">Control demo telemetry →</a>
+    </aside>
+
+    <!-- ================= TOP METRIC CARDS ================= -->
+    <section class="metrics" aria-label="Station overview">
+
+      <!-- Battery bank -->
+      <article class="card card--battery metric-card" tabindex="0" role="button" aria-expanded="false"
+        aria-controls="battery-details" data-metric-card>
+        <h2 class="card__title">Battery bank</h2>
+        <p class="card__subtitle">LiFePO4 • 12V 100Ah (1.28 kWh)</p>
+
+        <div class="battery__body">
+          <div class="ring" role="img" aria-label="Battery charge level">
+            <svg class="ring__svg" viewBox="0 0 84 84" aria-hidden="true" focusable="false">
+              <circle class="ring__track" cx="42" cy="42" r="36" />
+              <circle class="ring__value" id="battery-ring" cx="42" cy="42" r="36" pathLength="100"
+                style="--progress: 85" />
+            </svg>
+            <div class="ring__label">
+              <span class="ring__percent"><span id="battery-percent-value">85</span>%</span>
+              <span class="ring__caption">CHARGED</span>
+            </div>
+          </div>
+
+          <ul class="battery__stats">
+            <li><span class="muted">Status:</span> <strong id="battery-status-value">Charging</strong></li>
+            <li><span class="muted">Est. full:</span> <strong id="battery-est-full-value">1h 40m</strong></li>
+            <li><span class="muted">Runtime left:</span> <strong id="battery-runtime-value">~9h</strong></li>
+          </ul>
+        </div>
+
+        <div class="metric-details" id="battery-details" aria-hidden="true" hidden>
+          <div class="metric-details__heading">
+            <p class="metric-details__eyebrow">Battery telemetry</p>
+            <h3>Storage health and capacity</h3>
+          </div>
+          <dl class="metric-details__grid">
+            <div>
+              <dt>State of charge</dt>
+              <dd><span id="battery-detail-soc-value">85</span>%</dd>
+            </div>
+            <div>
+              <dt>Operating status</dt>
+              <dd id="battery-detail-status-value">Charging</dd>
+            </div>
+            <div>
+              <dt>Rated energy</dt>
+              <dd><span id="battery-capacity-kwh-value">1.28</span> kWh</dd>
+            </div>
+            <div>
+              <dt>Remaining energy</dt>
+              <dd><span id="battery-remaining-kwh-value">1.09</span> kWh</dd>
+            </div>
+            <div>
+              <dt>Pack voltage</dt>
+              <dd><span id="battery-pack-voltage-value">13.36</span> V</dd>
+            </div>
+            <div>
+              <dt>Battery current</dt>
+              <dd><span id="battery-current-value">14.60</span> A</dd>
+            </div>
+            <div>
+              <dt>Net battery power</dt>
+              <dd><span id="battery-power-value">195</span> W</dd>
+            </div>
+            <div>
+              <dt>Temperature</dt>
+              <dd><span id="battery-temperature-value">30</span> °C</dd>
+            </div>
+            <div>
+              <dt>State of health</dt>
+              <dd><span id="battery-health-value">98</span>%</dd>
+            </div>
+            <div>
+              <dt>Cell balance</dt>
+              <dd><span id="battery-cell-delta-value">20</span> mV</dd>
+            </div>
+            <div>
+              <dt>Protection state</dt>
+              <dd id="battery-protection-value">Normal</dd>
+            </div>
+            <div>
+              <dt>Last updated</dt>
+              <dd id="battery-updated-value">Just now</dd>
+            </div>
+          </dl>
+        </div>
+      </article>
+
+      <!-- Solar energy harvest -->
+      <article class="card card--solar metric-card" tabindex="0" role="button" aria-expanded="false"
+        aria-controls="solar-details" data-metric-card>
+        <h2 class="card__title">Solar energy harvest</h2>
+        <p class="card__subtitle">Total power generated right now</p>
+
+        <p class="solar__power"><span id="solar-power-value">285</span> W</p>
+
+        <dl class="solar__stats">
+          <div>
+            <dt>Today so far</dt>
+            <dd><span id="solar-today-value">1.8</span> kWh</dd>
+          </div>
+          <div>
+            <dt>Panel output</dt>
+            <dd><span id="solar-panel-count-value">1</span> × <span id="solar-panel-watts-value">450</span>W (12V)</dd>
+          </div>
+          <div>
+            <dt>Peak capacity</dt>
+            <dd><span id="solar-peak-value">450</span> W</dd>
+          </div>
+        </dl>
+
+        <div class="metric-details" id="solar-details" aria-hidden="true" hidden>
+          <div class="metric-details__heading">
+            <p class="metric-details__eyebrow">Generation telemetry</p>
+            <h3>Panel and controller performance</h3>
+          </div>
+          <dl class="metric-details__grid">
+            <div>
+              <dt>Array configuration</dt>
+              <dd id="solar-array-config-value">1 × 450W</dd>
+            </div>
+            <div>
+              <dt>System voltage</dt>
+              <dd><span id="solar-voltage-value">12</span> V</dd>
+            </div>
+            <div>
+              <dt>Charge controller</dt>
+              <dd id="solar-controller-value">MPPT</dd>
+            </div>
+            <div>
+              <dt>Current utilization</dt>
+              <dd><span id="solar-utilization-value">63</span>%</dd>
+            </div>
+            <div>
+              <dt>Operating state</dt>
+              <dd id="solar-state-value">Generating</dd>
+            </div>
+            <div>
+              <dt>Telemetry source</dt>
+              <dd id="solar-telemetry-source">ESP32 · pending</dd>
+            </div>
+          </dl>
+        </div>
+      </article>
+
+      <!-- Weather forecast -->
+      <article class="card card--weather metric-card" tabindex="0" role="button" aria-expanded="false"
+        aria-controls="weather-details" data-metric-card>
+        <h2 class="card__title">Weather forecast</h2>
+
+        <div class="weather__now">
+          <p class="weather__temp"><span id="weather-temp-value">35</span>°C</p>
+          <div class="weather__meta">
+            <p id="weather-condition">Sunny</p>
+            <p id="weather-location">Manila, PUP CEA</p>
+          </div>
+        </div>
+
+        <dl class="weather__rows">
+          <div class="weather__row">
+            <dt>Expected solar</dt>
+            <dd id="weather-expected-solar">High</dd>
+          </div>
+          <div class="weather__row">
+            <dt>Source</dt>
+            <dd id="weather-source">OpenWeatherAPI</dd>
+          </div>
+        </dl>
+
+        <div class="metric-details" id="weather-details" aria-hidden="true" hidden>
+          <div class="metric-details__heading">
+            <p class="metric-details__eyebrow">Environmental telemetry</p>
+            <h3>Conditions affecting solar harvest</h3>
+            <div class="weather-live-summary" aria-live="polite">
+              <p class="weather-live-summary__temp"><span id="weather-detail-temp">--</span>°C</p>
+              <div>
+                <p class="weather-live-summary__condition" id="weather-detail-condition">Loading forecast…</p>
+                <p class="weather-live-summary__caption">Current modeled conditions</p>
+              </div>
+            </div>
+          </div>
+          <dl class="metric-details__grid">
+            <div>
+              <dt>Solar outlook</dt>
+              <dd id="weather-detail-solar">--</dd>
+            </div>
+            <div>
+              <dt>Cloud cover</dt>
+              <dd id="weather-cloud-cover">--</dd>
+            </div>
+            <div>
+              <dt>Rain probability</dt>
+              <dd id="weather-rain-probability">--</dd>
+            </div>
+            <div>
+              <dt>Solar radiation</dt>
+              <dd id="weather-solar-radiation">--</dd>
+            </div>
+            <div>
+              <dt>Forecast window</dt>
+              <dd>Next 3 hours</dd>
+            </div>
+            <div>
+              <dt>Station location</dt>
+              <dd id="weather-detail-location">PUP CEA, Manila</dd>
+            </div>
+            <div>
+              <dt>Kiosk coordinates</dt>
+              <dd>14.599060, 121.005898</dd>
+            </div>
+            <div>
+              <dt>Forecast provider</dt>
+              <dd id="weather-detail-source">Open-Meteo</dd>
+            </div>
+            <div>
+              <dt>API status</dt>
+              <dd id="weather-sensor-status">Connecting…</dd>
+            </div>
+            <div>
+              <dt>Last updated</dt>
+              <dd id="weather-telemetry-source">Pending</dd>
+            </div>
+          </dl>
+        </div>
+      </article>
+    </section>
+
+    <!-- ================= OUTPUT LOAD TELEMETRY ================= -->
+    <section class="card output-telemetry" aria-labelledby="output-telemetry-heading">
+      <div class="output-telemetry__header">
+        <div>
+          <p class="output-telemetry__eyebrow">Charging output telemetry</p>
+          <h2 id="output-telemetry-heading">Voltage, current, and delivered load</h2>
+          <p>Output-side readings are separate from the Battery Bank measurements above.</p>
+        </div>
+        <span class="output-telemetry__source" id="output-telemetry-source">Live session simulation</span>
+      </div>
+
+      <div class="output-readings">
+        <article class="output-reading output-reading--total">
+          <p class="output-reading__label">Total output load</p>
+          <p class="output-reading__primary"><span id="output-total-power-value">90.0</span> <small>W</small></p>
+          <p class="output-reading__meta">Demand: <strong><span id="output-demand-power-value">90.0</span> W</strong></p>
+        </article>
+
+        <article class="output-reading">
+          <div class="output-reading__heading">
+            <p class="output-reading__label">AC outlets</p>
+            <span>PZEM-004T</span>
+          </div>
+          <dl class="electrical-values">
+            <div><dt>Voltage</dt><dd><span id="output-ac-voltage-value">220.0</span> V</dd></div>
+            <div><dt>Current</dt><dd><span id="output-ac-current-value">0.25</span> A</dd></div>
+            <div><dt>Load</dt><dd><span id="output-ac-power-value">54.0</span> W</dd></div>
+          </dl>
+        </article>
+
+        <article class="output-reading">
+          <div class="output-reading__heading">
+            <p class="output-reading__label">DC charging rail</p>
+            <span>DC sensor</span>
+          </div>
+          <dl class="electrical-values">
+            <div><dt>Voltage</dt><dd><span id="output-dc-voltage-value">5.00</span> V</dd></div>
+            <div><dt>Current</dt><dd><span id="output-dc-current-value">7.20</span> A</dd></div>
+            <div><dt>Load</dt><dd><span id="output-dc-power-value">36.0</span> W</dd></div>
+          </dl>
+        </article>
+
+        <article class="output-reading">
+          <p class="output-reading__label">Output energy today</p>
+          <p class="output-reading__primary"><span id="output-energy-value">0.00</span> <small id="output-energy-unit">Wh</small></p>
+          <p class="output-reading__meta"><strong id="output-active-channels-value">0 of 6</strong> channels active</p>
+        </article>
+      </div>
+
+      <p class="output-telemetry__note" id="output-telemetry-note">
+        Values respond to the ports currently in use and each session's power draw. Gentle load variation is simulated; the hardware build will replace it with PZEM-004T and DC sensor readings.
+      </p>
+    </section>
+
+    <!-- ================= SUMMARY STRIP ================= -->
+    <section class="summary" aria-label="Today at a glance">
+      <article class="card">
+        <p class="stat__value" id="devices-charged-value">0
+
+        </p>
+        <p class="stat__label">Devices connected today</p>
+      </article>
+
+      <article class="card">
+        <p class="stat__value"><span id="energy-delivered-value">0.00</span> <span id="energy-delivered-unit">Wh</span></p>
+        <p class="stat__label">Energy delivered today</p>
+      </article>
+
+      <article class="card">
+        <p class="stat__value"><span id="ports-active-value">0</span> / <span id="ports-total-value">6</span></p>
+        <p class="stat__label">Ports currently active</p>
+      </article>
+    </section>
+
+    <!-- ================= HERO ================= -->
+    <section class="card hero" aria-labelledby="hero-heading">
+      <div class="hero__copy">
+        <h2 class="hero__title" id="hero-heading">An off-grid, solar-powered charging kiosk</h2>
+        <p class="hero__text">
+          CampusVolt harvests sunlight through a 450W rooftop solar panel, stores it in an on-site 12V 100Ah LiFePO4
+          battery bank, and shares it across six charging channels. It keeps working even when the campus grid doesn't —
+          no outlet, no problem.
+        </p>
+      </div>
+
+      <dl class="specs">
+        <div class="spec">
+          <dt>Solar array</dt>
+          <dd id="spec-solar-array-value">1 × 450W (12V)</dd>
+        </div>
+        <div class="spec">
+          <dt>Battery</dt>
+          <dd id="spec-battery-value">LiFePO4 12V 100Ah</dd>
+        </div>
+        <div class="spec">
+          <dt>Charging points</dt>
+          <dd id="spec-charging-points-value">6 total (2 AC, 3 DC, 1 Wireless)</dd>
+        </div>
+        <div class="spec">
+          <dt>Local Wi-Fi range</dt>
+          <dd id="spec-wifi-range-value">20–30 m</dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- ================= HOW IT WORKS ================= -->
+    <section class="how" aria-labelledby="how-heading">
+      <h2 class="section-title" id="how-heading">How it works</h2>
+
+      <ul class="steps">
+        <li class="card step">
+          <div class="step__icon">
+            <!-- Sun -->
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="4" />
+              <path
+                d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+            </svg>
+          </div>
+          <h3 class="step__title">1. Sunlight in</h3>
+          <p class="step__text">Solar panels convert sunlight into DC power throughout the day.</p>
+        </li>
+
+        <li class="card step">
+          <div class="step__icon">
+            <!-- Battery -->
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="7" y="5" width="10" height="17" rx="2" />
+              <path d="M10 2h4" />
+              <path d="M12 12v6" />
+            </svg>
+          </div>
+          <h3 class="step__title">2. Stored safely</h3>
+          <p class="step__text">An MPPT controller stores the energy in the LiFePO4 battery bank.</p>
+        </li>
+
+        <li class="card step">
+          <div class="step__icon">
+            <!-- Lightning bolt -->
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />
+            </svg>
+          </div>
+          <h3 class="step__title">3. Shared intelligently</h3>
+          <p class="step__text">Power is balanced across all ports based on demand and battery level.</p>
+        </li>
+
+        <li class="card step">
+          <div class="step__icon">
+            <!-- Mobile phone -->
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="7" y="2" width="10" height="20" rx="2.5" />
+              <path d="M11 18h2" />
+            </svg>
+          </div>
+          <h3 class="step__title">4. Your device charges</h3>
+          <p class="step__text">Plug into any open port and charge — the station handles the rest.</p>
+        </li>
+      </ul>
+    </section>
+
+    <!-- ================= INFO TABLES ================= -->
+    <section class="info" aria-label="Port guidance and station limits">
+
+      <article class="card info-card">
+        <h2 class="info-card__title">Which port should I use?</h2>
+        <dl class="info-list">
+          <div class="info-list__row">
+            <dt>Laptop with a wall plug</dt>
+            <dd>AC outlet</dd>
+          </div>
+          <div class="info-list__row">
+            <dt>Older Android phone</dt>
+            <dd>Micro USB cable</dd>
+          </div>
+          <div class="info-list__row">
+            <dt>Newer phone, tablet, laptop</dt>
+            <dd>USB-C cable or port</dd>
+          </div>
+          <div class="info-list__row">
+            <dt>iPhone / iPad</dt>
+            <dd>Lightning cable</dd>
+          </div>
+          <div class="info-list__row">
+            <dt>Any Qi-enabled phone</dt>
+            <dd>Wireless pad</dd>
+          </div>
+        </dl>
+      </article>
+
+      <article class="card info-card info-card--tip">
+        <h2 class="info-card__title">Good to know</h2>
+        <dl class="info-list">
+          <div class="info-list__row">
+            <dt>Max load per port</dt>
+            <dd>150 W</dd>
+          </div>
+          <div class="info-list__row">
+            <dt>Not for</dt>
+            <dd>Lab equipment, appliances</dd>
+          </div>
+          <div class="info-list__row">
+            <dt>Overload response</dt>
+            <dd>Auto-isolated, others stay on</dd>
+          </div>
+          <div class="info-list__row">
+            <dt>Weatherproofing</dt>
+            <dd>IP65 enclosure</dd>
+          </div>
+        </dl>
+      </article>
+
+    </section>
+
+  </main>
+
+  <dialog class="metric-modal" id="metric-modal" aria-labelledby="metric-modal-title">
+    <div class="metric-modal__surface">
+      <div class="metric-modal__header">
+        <div>
+          <p class="metric-modal__eyebrow">CampusVolt live data</p>
+          <h2 id="metric-modal-title">System details</h2>
+        </div>
+        <button class="metric-modal__close" id="metric-modal-close" type="button" aria-label="Close details">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="metric-modal__content" id="metric-modal-content"></div>
+    </div>
+  </dialog>
+
+</body>
+
+</html>
