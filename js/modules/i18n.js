@@ -45,10 +45,14 @@ export const TRANSLATIONS = {
     // Modal - Cash Flow
     btn_back: "‹ Back",
     cash_insert_title: "Insert coins",
-    cash_insert_desc: "Drop coins into the coin slot. Total minutes updates as you go.",
-    cash_total_label: "Total Inserted",
+    cash_insert_desc: "Drop coins into the coin slot on the kiosk. Your amount updates as you go.",
+    cash_total_label: "Amount inserted",
     cash_mins_suffix: "minutes of charging",
     cash_proceed_btn: "Confirm & Proceed ›",
+    cash_waiting_status: "Waiting for coins…",
+    cash_received_status: "Coin accepted",
+    cash_demo_label: "Demo coin input",
+    cash_rate_note: "₱1 = 1 minute of charging.",
 
     // Modal - GCash Flow
     gcash_qr_title: "Scan QR code",
@@ -182,10 +186,14 @@ export const TRANSLATIONS = {
     // Modal - Cash Flow
     btn_back: "‹ Bumalik",
     cash_insert_title: "Maghulog ng barya",
-    cash_insert_desc: "Ihulog ang barya sa coin slot. Awtomatikong madaragdagan ang oras mo.",
-    cash_total_label: "Kabuuang Naihulog",
+    cash_insert_desc: "Ihulog ang barya sa coin slot ng kiosk. Awtomatikong magbabago ang halagang ipinapakita.",
+    cash_total_label: "Halagang naihulog",
     cash_mins_suffix: "minuto ng pag-charge",
     cash_proceed_btn: "Kumpirmahin at Magpatuloy ›",
+    cash_waiting_status: "Naghihintay ng barya…",
+    cash_received_status: "Tinanggap ang barya",
+    cash_demo_label: "Demo na paghuhulog",
+    cash_rate_note: "₱1 = 1 minuto ng pag-charge.",
 
     // Modal - GCash Flow
     gcash_qr_title: "I-scan ang QR code",

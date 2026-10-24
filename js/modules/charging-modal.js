@@ -28,7 +28,7 @@ export class ChargingModal {
     this.currentPort = null;
     this.selectedMethod = "Cash"; // "Cash" | "GCash"
     this.selectedDuration = 15; // default 15 mins (₱15)
-    this.insertedCoins = 15;
+    this.insertedCoins = 0;
     this.activeStep = "pay-select"; // "pay-select" | "pay-cash" | "pay-gcash" | "confirm" | "connect" | "charging"
     this.activeSession = null;
 
@@ -76,6 +76,24 @@ export class ChargingModal {
       }
     });
 
+    // Hardware adapters can report accepted coins without coupling their
+    // transport logic to this modal. Send detail.amount for a denomination or
+    // detail.total for the coin acceptor's authoritative running total.
+    window.addEventListener("campusvolt:coin-input", (event) => {
+      if (this.activeStep !== "pay-cash" || !this.currentPort) return;
+      const detail = event.detail || {};
+      if (detail.portId && detail.portId !== this.currentPort.id) return;
+
+      if (detail.total !== undefined && detail.total !== null && Number.isFinite(Number(detail.total))) {
+        this._setInsertedCoins(Number(detail.total));
+      } else {
+        const denomination = Number(detail.amount);
+        if (Number.isFinite(denomination) && denomination > 0) {
+          this._setInsertedCoins(this.insertedCoins + denomination);
+        }
+      }
+    });
+
     i18n.addEventListener("language-changed", () => {
       if (this.dialog && this.dialog.open && this.currentPort) {
         this._renderCurrentStep();
@@ -114,7 +132,7 @@ export class ChargingModal {
       // Available port clicked: open Step 1 (Select Payment Method) matching Screenshot 1!
       this.selectedMethod = "Cash";
       this.selectedDuration = 15;
-      this.insertedCoins = 15;
+      this.insertedCoins = 0;
       this.showPaySelectStep();
     }
 
@@ -284,7 +302,6 @@ export class ChargingModal {
     this.dialog.querySelector("#btn-select-cash")?.addEventListener("click", (e) => {
       e.stopPropagation();
       this.selectedMethod = "Cash";
-      this.insertedCoins = this.selectedDuration || 15;
       this.showPayCashStep();
     });
 
@@ -296,7 +313,7 @@ export class ChargingModal {
   }
 
   /**
-   * STEP 1.1: Cash Flow - Insert Coins & Linear Adjustment with "< Back" button (Screenshot 4)
+   * STEP 1.1: Cash Flow - physical coin input with "< Back" button
    */
   showPayCashStep() {
     this.activeStep = "pay-cash";
@@ -312,38 +329,29 @@ export class ChargingModal {
             ${t("btn_back")}
           </button>
 
-          <h2 class="modal-section-title">${t("cash_insert_title")}</h2>
+          <div class="cash-title-row">
+            <h2 class="modal-section-title">${t("cash_insert_title")}</h2>
+            <span class="port-status-pill port-status-pill--available">${escapeHtml(port.name)}</span>
+          </div>
           <p class="modal-instructions">${t("cash_insert_desc")}</p>
 
-          <div class="coins-simulator-box">
+          <div class="cash-insert-panel">
+            <div class="cash-slot" aria-hidden="true">
+              <span class="cash-slot__opening"></span>
+            </div>
+
             <div class="coin-display-balance">
               <span class="coin-balance-label">${t("cash_total_label")}</span>
-              <span class="coin-balance-val" id="coin-balance-val">₱${this.insertedCoins}</span>
-              <span class="coin-minutes-val" id="coin-minutes-val">${this.insertedCoins} ${t("cash_mins_suffix")}</span>
+              <span class="coin-balance-val" id="coin-balance-val" aria-live="polite">₱${this.insertedCoins}</span>
             </div>
 
-            <!-- Linear Coin & Time Slider -->
-            <div class="modal-linear-slider-wrapper" style="margin-block: 8px 4px;">
-              <input 
-                type="range" 
-                id="cash-linear-slider" 
-                class="modal-linear-slider" 
-                min="5" 
-                max="120" 
-                step="1" 
-                value="${Math.max(5, Math.min(120, this.insertedCoins))}" 
-                aria-label="Linear price and time adjustment slider"
-              >
-              <div class="slider-ticks">
-                <span>₱5 (5m)</span>
-                <span>₱30 (30m)</span>
-                <span>₱60 (60m)</span>
-                <span>₱90 (90m)</span>
-                <span>₱120 (120m)</span>
-              </div>
+            <div class="cash-input-status" id="cash-input-status" role="status">
+              <span class="cash-input-status__dot" aria-hidden="true"></span>
+              <span id="cash-input-status-text">${this.insertedCoins > 0 ? t("cash_received_status") : t("cash_waiting_status")}</span>
             </div>
 
-            <div class="coin-buttons" role="group" aria-label="Coin insertion buttons">
+            <div class="cash-demo-controls" role="group" aria-label="${t("cash_demo_label")}">
+              <span class="cash-demo-controls__label">${t("cash_demo_label")}</span>
               <button type="button" class="coin-btn" data-coin="1">+ ₱1</button>
               <button type="button" class="coin-btn" data-coin="5">+ ₱5</button>
               <button type="button" class="coin-btn coin-btn--recommended" data-coin="10">+ ₱10</button>
@@ -351,9 +359,11 @@ export class ChargingModal {
             </div>
           </div>
 
-          <button type="button" class="btn btn--primary btn--full" id="confirm-coins-btn">
+          <button type="button" class="btn btn--primary btn--full cash-confirm-btn" id="confirm-coins-btn" ${this.insertedCoins > 0 ? "" : "hidden disabled"}>
             ${t("cash_proceed_btn")} (₱${this.insertedCoins})
           </button>
+
+          <p class="cash-rate-note">${t("cash_rate_note")}</p>
         </div>
       </div>
     `;
@@ -367,40 +377,56 @@ export class ChargingModal {
       this.showPaySelectStep();
     });
 
-    const balEl = this.dialog.querySelector("#coin-balance-val");
-    const minEl = this.dialog.querySelector("#coin-minutes-val");
-    const procBtn = this.dialog.querySelector("#confirm-coins-btn");
-    const cashSlider = this.dialog.querySelector("#cash-linear-slider");
-
-    const updateCashDisplays = () => {
-      if (balEl) balEl.textContent = `₱${this.insertedCoins}`;
-      if (minEl) minEl.textContent = `${this.insertedCoins} ${t("cash_mins_suffix")}`;
-      if (procBtn) procBtn.textContent = `${t("cash_proceed_btn")} (₱${this.insertedCoins})`;
-      if (cashSlider) cashSlider.value = Math.max(5, Math.min(120, this.insertedCoins));
+    this.cashDisplayElements = {
+      balEl: this.dialog.querySelector("#coin-balance-val"),
+      statusEl: this.dialog.querySelector("#cash-input-status"),
+      statusTextEl: this.dialog.querySelector("#cash-input-status-text"),
+      procBtn: this.dialog.querySelector("#confirm-coins-btn"),
     };
-
-    cashSlider?.addEventListener("input", (e) => {
-      const val = parseInt(e.target.value, 10);
-      this.insertedCoins = val;
-      this.selectedDuration = val;
-      updateCashDisplays();
-    });
+    this._updateCashDisplays();
 
     this.dialog.querySelectorAll(".coin-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         const val = parseInt(btn.dataset.coin, 10);
-        this.insertedCoins = Math.min(120, Math.max(5, (this.insertedCoins || 0) + val));
-        this.selectedDuration = this.insertedCoins;
-        updateCashDisplays();
+        window.dispatchEvent(new CustomEvent("campusvolt:coin-input", {
+          detail: { amount: val, portId: this.currentPort?.id },
+        }));
       });
     });
 
     this.dialog.querySelector("#confirm-coins-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (this.insertedCoins < 1) return;
       this.selectedMethod = "Cash";
       this.selectedDuration = this.insertedCoins;
       this.showConfirmStep();
     });
+  }
+
+  _setInsertedCoins(value) {
+    const nextAmount = Math.round(Number(value));
+    if (!Number.isFinite(nextAmount) || nextAmount < 0) return;
+    this.insertedCoins = Math.min(PRICING_CONFIG.maxDuration, nextAmount);
+    this.selectedDuration = this.insertedCoins;
+    this._updateCashDisplays();
+  }
+
+  _updateCashDisplays() {
+    const elements = this.cashDisplayElements;
+    if (!elements) return;
+    const hasCoins = this.insertedCoins > 0;
+    const t = (key) => i18n.t(key);
+
+    if (elements.balEl) elements.balEl.textContent = `₱${this.insertedCoins}`;
+    if (elements.statusTextEl) {
+      elements.statusTextEl.textContent = hasCoins ? t("cash_received_status") : t("cash_waiting_status");
+    }
+    elements.statusEl?.classList.toggle("cash-input-status--received", hasCoins);
+    if (elements.procBtn) {
+      elements.procBtn.textContent = `${t("cash_proceed_btn")} (₱${this.insertedCoins})`;
+      elements.procBtn.hidden = !hasCoins;
+      elements.procBtn.disabled = !hasCoins;
+    }
   }
 
   /**

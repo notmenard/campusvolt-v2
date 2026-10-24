@@ -491,8 +491,13 @@
   }
 
   .coin-buttons,
+  .cash-demo-controls,
   .duration-quick-presets {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .cash-demo-controls__label {
+    grid-column: 1 / -1;
   }
 
   .team-stats-grid {
