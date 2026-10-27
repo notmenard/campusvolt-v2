@@ -107,7 +107,7 @@ export class PortsRenderer {
             </span>
             ${session
               ? `<span class="port-card__timer-snippet" id="snippet-${port.id}">${this._formatSnippet(session.remainingSeconds)}</span>`
-              : ((hardwareChannel?.inUse || hardwareChannel?.fault) ? `<span class="port-card__timer-snippet" id="snippet-${port.id}">${hardwareChannel.fault ? i18n.t("hardware_fault") : i18n.t("hardware_sensor")}</span>` : "")}
+              : (hardwareChannel?.fault ? `<span class="port-card__timer-snippet" id="snippet-${port.id}">${i18n.t("hardware_fault")}</span>` : "")}
           </div>
         </div>
 
@@ -149,7 +149,7 @@ export class PortsRenderer {
 
     // Update timer snippet
     let snippet = document.getElementById(`snippet-${port.id}`);
-    if (session || hardwareChannel?.inUse || hardwareChannel?.fault) {
+    if (session || hardwareChannel?.fault) {
       if (!snippet) {
         snippet = document.createElement("span");
         snippet.id = `snippet-${port.id}`;
@@ -158,7 +158,7 @@ export class PortsRenderer {
       }
       snippet.textContent = session
         ? this._formatSnippet(session.remainingSeconds)
-        : i18n.t(hardwareChannel.fault ? "hardware_fault" : "hardware_sensor");
+        : i18n.t("hardware_fault");
     } else if (snippet) {
       snippet.remove();
     }

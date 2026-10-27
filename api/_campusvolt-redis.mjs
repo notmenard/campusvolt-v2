@@ -17,6 +17,8 @@ export const STATION_ID = String(process.env.CAMPUSVOLT_STATION_ID || "station-0
 
 const HARDWARE_TTL_MS = 30_000;
 export const RELAY_COMMAND_LEASE_MS = 15_000;
+export const COIN_COLLECTION_TTL_SECONDS = 300;
+export const ACCEPTED_COIN_DENOMINATIONS = [1, 5, 10, 20];
 
 export function jsonResponse(status, payload) {
   return Response.json(payload, {
@@ -37,6 +39,55 @@ export function portKey(portId) {
 
 export function hardwareKey() {
   return `campusvolt:${STATION_ID}:hardware`;
+}
+
+export function coinCollectionKey() {
+  return `campusvolt:${STATION_ID}:coin-collection`;
+}
+
+export function coinEventKey(eventId) {
+  return `campusvolt:${STATION_ID}:coin-event:${eventId}`;
+}
+
+export function publicCoinCollection(value) {
+  const collection = typeof value === "string" ? parseJson(value) : value;
+  if (!collection || typeof collection !== "object") return null;
+  const expiresAt = Number(collection.expiresAt) || 0;
+  if (!expiresAt || expiresAt <= Date.now()) return null;
+  return {
+    collectionId: String(collection.collectionId || "").slice(0, 80),
+    portId: PORT_ID_SET.has(collection.portId) ? collection.portId : null,
+    targetAmount: Math.max(1, Math.min(120, Number(collection.targetAmount) || 1)),
+    insertedAmount: Math.max(0, Math.min(120, Number(collection.insertedAmount) || 0)),
+    eventCount: Math.max(0, Number(collection.eventCount) || 0),
+    status: ["collecting", "ready", "consumed"].includes(collection.status)
+      ? collection.status
+      : "collecting",
+    createdAt: Number(collection.createdAt) || null,
+    updatedAt: Number(collection.updatedAt) || null,
+    expiresAt,
+    lastCoinAt: Number(collection.lastCoinAt) || null,
+  };
+}
+
+export function buildCoinControl(collection, issuedAt = Date.now()) {
+  const current = publicCoinCollection(collection);
+  const enabled = Boolean(
+    current
+    && current.status === "collecting"
+    && current.insertedAmount < current.targetAmount
+    && current.expiresAt > issuedAt,
+  );
+  return {
+    schemaVersion: 1,
+    enabled,
+    collectionId: current?.collectionId || null,
+    portId: current?.portId || null,
+    targetAmount: current?.targetAmount || 0,
+    insertedAmount: current?.insertedAmount || 0,
+    acceptedDenominations: ACCEPTED_COIN_DENOMINATIONS,
+    validUntil: enabled ? Math.min(current.expiresAt, issuedAt + RELAY_COMMAND_LEASE_MS) : issuedAt + RELAY_COMMAND_LEASE_MS,
+  };
 }
 
 export function buildRelayControl(sessions, issuedAt = Date.now()) {
@@ -146,6 +197,7 @@ export async function readSharedState() {
     "MGET",
     ...PORT_IDS.map(portKey),
     hardwareKey(),
+    coinCollectionKey(),
   ]);
   const rows = Array.isArray(values) ? values : [];
   const sessions = rows
@@ -153,5 +205,6 @@ export async function readSharedState() {
     .map(parseJson)
     .filter(Boolean);
   const station = publicHardwareState(rows[PORT_IDS.length]);
-  return { sessions, station };
+  const coinCollection = publicCoinCollection(rows[PORT_IDS.length + 1]);
+  return { sessions, station, coinCollection };
 }

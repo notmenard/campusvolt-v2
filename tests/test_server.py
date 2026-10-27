@@ -37,6 +37,23 @@ class StationPayloadNormalizationTests(unittest.TestCase):
                 "outlet-1",
             )
 
+    def test_channel_does_not_require_a_presence_sensor(self):
+        channel = server._normalize_channel(
+            {
+                "watts": 0,
+                "voltageV": 220,
+                "currentA": 0,
+                "relayOn": False,
+            },
+            "outlet-1",
+        )
+        self.assertFalse(channel["inUse"])
+
+    def test_coin_control_is_fail_closed_without_a_collection(self):
+        control = server._build_coin_control(None)
+        self.assertFalse(control["enabled"])
+        self.assertIsNone(control["collectionId"])
+
     def test_normalizes_battery_and_solar_telemetry(self):
         telemetry = server._normalize_telemetry(
             {
@@ -170,7 +187,7 @@ class LocalStationEndpointTests(unittest.TestCase):
                         "portName": "Outlet 2",
                         "portType": "outlet",
                         "durationMinutes": 1,
-                        "method": "Cash",
+                        "method": "Demo Cash",
                     }).encode("utf-8"),
                     headers={"Content-Type": "application/json"},
                     method="POST",
@@ -196,6 +213,97 @@ class LocalStationEndpointTests(unittest.TestCase):
                     stopped_command = json.load(response)["control"]
                     self.assertEqual(stopped_command["commandId"], "relay:all-off")
                     self.assertFalse(stopped_command["channels"]["outlet-2"]["relayOn"])
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+                thread.join(timeout=5)
+                server.STATE_FILE = original_state_file
+                server.STATION_API_KEY = original_api_key
+
+    def test_coin_collection_creates_paid_session_and_relay_command(self):
+        original_state_file = server.STATE_FILE
+        original_api_key = server.STATION_API_KEY
+        with tempfile.TemporaryDirectory() as directory:
+            server.STATE_FILE = Path(directory) / "state.json"
+            server.STATION_API_KEY = "local-test-key-with-at-least-32-characters"
+            httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.CampusVoltHandler)
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{httpd.server_port}"
+
+            def post(path, payload, authenticated=False):
+                headers = {"Content-Type": "application/json"}
+                if authenticated:
+                    headers["Authorization"] = f"Bearer {server.STATION_API_KEY}"
+                request = Request(
+                    f"{base_url}{path}",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers=headers,
+                    method="POST",
+                )
+                with urlopen(request, timeout=5) as response:
+                    return response.status, json.load(response)
+
+            try:
+                channels = {
+                    port_id: {
+                        "watts": 0,
+                        "voltageV": 220 if port_id.startswith("outlet-") else 5.1,
+                        "currentA": 0,
+                        "relayOn": False,
+                        "fault": None,
+                    }
+                    for port_id in server.PORT_IDS
+                }
+                heartbeat = {
+                    "schemaVersion": 1,
+                    "stationId": "station-01",
+                    "messageId": "coin-flow-heartbeat",
+                    "sentAt": int(server.time.time() * 1000),
+                    "channels": channels,
+                }
+                status, accepted = post("/api/station-status", heartbeat, authenticated=True)
+                self.assertEqual(status, 202)
+                self.assertFalse(accepted["coinControl"]["enabled"])
+
+                status, created = post("/api/coin-collections", {
+                    "portId": "outlet-2",
+                    "targetAmount": 15,
+                })
+                self.assertEqual(status, 201)
+                collection_id = created["collection"]["collectionId"]
+
+                status, accepted = post("/api/station-status", heartbeat, authenticated=True)
+                self.assertEqual(status, 202)
+                self.assertTrue(accepted["coinControl"]["enabled"])
+                self.assertEqual(accepted["coinControl"]["collectionId"], collection_id)
+
+                for index, denomination in enumerate((10, 5), start=1):
+                    status, coin = post("/api/station-coins", {
+                        "collectionId": collection_id,
+                        "eventId": f"test-coin-{index}",
+                        "denomination": denomination,
+                        "pulseCount": denomination,
+                    }, authenticated=True)
+                    self.assertEqual(status, 202)
+                self.assertEqual(coin["collection"]["status"], "ready")
+                self.assertEqual(coin["collection"]["insertedAmount"], 15)
+
+                status, session = post("/api/sessions", {
+                    "portId": "outlet-2",
+                    "portName": "Outlet 2",
+                    "portType": "outlet",
+                    "durationMinutes": 15,
+                    "method": "Cash",
+                    "collectionId": collection_id,
+                })
+                self.assertEqual(status, 201)
+                self.assertEqual(session["session"]["durationMinutes"], 15)
+
+                status, accepted = post("/api/station-status", heartbeat, authenticated=True)
+                self.assertEqual(status, 202)
+                self.assertFalse(accepted["coinControl"]["enabled"])
+                self.assertTrue(accepted["control"]["channels"]["outlet-2"]["relayOn"])
             finally:
                 httpd.shutdown()
                 httpd.server_close()

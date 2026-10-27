@@ -6,6 +6,7 @@ import {
   STATION_ID,
   configurationError,
   buildRelayControl,
+  buildCoinControl,
   hardwareKey,
   jsonResponse,
   publicHardwareState,
@@ -55,7 +56,8 @@ function normalizeChannel(source, portId) {
   }
   const watts = boundedNumber(source.watts, 0, 500, `channels.${portId}.watts`);
   return {
-    inUse: requiredBoolean(source.inUse, `channels.${portId}.inUse`),
+    // Kept for schema-v1 compatibility only; channel availability is owned by paid sessions.
+    inUse: source.inUse === undefined ? false : requiredBoolean(source.inUse, `channels.${portId}.inUse`),
     watts,
     voltageV: boundedNumber(source.voltageV, 0, 300, `channels.${portId}.voltageV`),
     currentA: boundedNumber(source.currentA, 0, 20, `channels.${portId}.currentA`),
@@ -187,6 +189,7 @@ export async function POST(request) {
       heartbeatTtlSeconds: HEARTBEAT_TTL_SECONDS,
       station: shared.station.online ? shared.station : publicHardwareState(hardware),
       control: buildRelayControl(shared.sessions, receivedAt),
+      coinControl: buildCoinControl(shared.coinCollection, receivedAt),
     });
   } catch (error) {
     console.error("Unable to save CampusVolt hardware heartbeat", error);

@@ -452,10 +452,10 @@ and rule-based policy input while a fresh heartbeat is available. Final
 hardware integration requires:
 
 1. Completing the sensor adapters in `firmware/esp32-campusvolt/` for the final schematic.
-2. Sensor adapters that emit the `docs/ESP32_STATION_API.md` schema.
+2. Sensor adapters that emit electrical measurements and faults from the `docs/ESP32_STATION_API.md` schema; no plug-presence sensor is required.
 3. Optional ESP32 SoftAP setup for `CampusVolt-AP`.
 4. The station API key provisioned in Vercel and the ESP32.
-5. Mapping the six relay pins and polarity from the final schematic.
+5. Mapping the six relay pins, coin signal/inhibit pins, pulse denominations, and polarities from the final schematic.
 6. Calibrating and validating local over-current, thermal, BMS, and emergency-stop overrides.
 7. Cached/fallback behavior when Wi-Fi, the internet, weather service, or BMS becomes unavailable.
 

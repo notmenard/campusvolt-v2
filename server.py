@@ -20,6 +20,8 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs
+from uuid import uuid4
 
 
 ROOT = Path(__file__).resolve().parent
@@ -38,6 +40,8 @@ STATION_SCHEMA_VERSION = 1
 STATION_ID = os.environ.get("CAMPUSVOLT_STATION_ID", "station-01")
 STATION_API_KEY = os.environ.get("CAMPUSVOLT_STATION_API_KEY", "")
 RELAY_COMMAND_LEASE_MS = 15_000
+COIN_COLLECTION_TTL_MS = 300_000
+ACCEPTED_COIN_DENOMINATIONS = {1, 5, 10, 20}
 
 
 def _bounded_number(value: object, minimum: float, maximum: float, field_name: str) -> float:
@@ -66,7 +70,9 @@ def _normalize_channel(source: object, port_id: str) -> dict:
     if not isinstance(source, dict):
         raise ValueError(f"channels.{port_id} must be an object.")
     return {
-        "inUse": _required_boolean(source.get("inUse"), f"channels.{port_id}.inUse"),
+        # Compatibility field only. Paid sessions, not plug sensing, own availability.
+        "inUse": _required_boolean(source.get("inUse"), f"channels.{port_id}.inUse")
+        if "inUse" in source else False,
         "watts": _bounded_number(source.get("watts"), 0, 500, f"channels.{port_id}.watts"),
         "voltageV": _bounded_number(source.get("voltageV"), 0, 300, f"channels.{port_id}.voltageV"),
         "currentA": _bounded_number(source.get("currentA"), 0, 20, f"channels.{port_id}.currentA"),
@@ -142,6 +148,66 @@ def _save_sessions(sessions: list[dict]) -> None:
     payload = _load_state()
     payload["sessions"] = sessions
     _save_state(payload)
+
+
+def _coin_collection() -> dict | None:
+    collection = _load_state().get("coinCollection")
+    if not isinstance(collection, dict):
+        return None
+    if int(collection.get("expiresAt", 0)) <= int(time.time() * 1000):
+        payload = _load_state()
+        payload.pop("coinCollection", None)
+        _save_state(payload)
+        return None
+    return collection
+
+
+def _save_coin_collection(collection: dict | None) -> None:
+    payload = _load_state()
+    if collection is None:
+        payload.pop("coinCollection", None)
+    else:
+        payload["coinCollection"] = collection
+    _save_state(payload)
+
+
+def _public_coin_collection(collection: dict | None) -> dict | None:
+    if not collection or int(collection.get("expiresAt", 0)) <= int(time.time() * 1000):
+        return None
+    return {
+        "collectionId": str(collection.get("collectionId", ""))[:80],
+        "portId": collection.get("portId") if collection.get("portId") in PORT_IDS else None,
+        "targetAmount": max(1, min(120, int(collection.get("targetAmount", 1)))),
+        "insertedAmount": max(0, min(120, int(collection.get("insertedAmount", 0)))),
+        "eventCount": max(0, int(collection.get("eventCount", 0))),
+        "status": collection.get("status") if collection.get("status") in {"collecting", "ready", "consumed"} else "collecting",
+        "createdAt": collection.get("createdAt"),
+        "updatedAt": collection.get("updatedAt"),
+        "expiresAt": int(collection.get("expiresAt", 0)),
+        "lastCoinAt": collection.get("lastCoinAt"),
+    }
+
+
+def _build_coin_control(collection: dict | None, issued_at: int | None = None) -> dict:
+    issued_at = issued_at if issued_at is not None else int(time.time() * 1000)
+    current = _public_coin_collection(collection)
+    enabled = bool(
+        current
+        and current["status"] == "collecting"
+        and current["insertedAmount"] < current["targetAmount"]
+        and current["expiresAt"] > issued_at
+    )
+    return {
+        "schemaVersion": 1,
+        "enabled": enabled,
+        "collectionId": current["collectionId"] if current else None,
+        "portId": current["portId"] if current else None,
+        "targetAmount": current["targetAmount"] if current else 0,
+        "insertedAmount": current["insertedAmount"] if current else 0,
+        "acceptedDenominations": sorted(ACCEPTED_COIN_DENOMINATIONS),
+        "validUntil": min(current["expiresAt"], issued_at + RELAY_COMMAND_LEASE_MS)
+        if enabled else issued_at + RELAY_COMMAND_LEASE_MS,
+    }
 
 
 def _active_sessions() -> list[dict]:
@@ -255,12 +321,22 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
         return payload
 
     def do_GET(self) -> None:
-        if urlparse(self.path).path == "/api/sessions":
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/sessions":
             with STATE_LOCK:
                 self._send_json(
                     HTTPStatus.OK,
                     {"stationId": STATION_ID, "sessions": _active_sessions(), "station": _hardware_status()},
                 )
+            return
+        if parsed.path == "/api/coin-collections":
+            requested_id = parse_qs(parsed.query).get("collectionId", [""])[0]
+            with STATE_LOCK:
+                collection = _public_coin_collection(_coin_collection())
+                if not collection or (requested_id and collection["collectionId"] != requested_id):
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "Coin collection not found or expired."})
+                else:
+                    self._send_json(HTTPStatus.OK, {"stationId": STATION_ID, "collection": collection})
             return
         super().do_GET()
 
@@ -268,6 +344,12 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/station-status":
             self._handle_station_status()
+            return
+        if path == "/api/station-coins":
+            self._handle_station_coin()
+            return
+        if path == "/api/coin-collections":
+            self._handle_coin_collection_create()
             return
         if path != "/api/sessions":
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -286,10 +368,10 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
         with STATE_LOCK:
             sessions = _active_sessions()
             hardware_channel = _hardware_status()["channels"].get(port_id, {})
-            if hardware_channel.get("inUse") or hardware_channel.get("fault"):
+            if hardware_channel.get("fault"):
                 self._send_json(
                     HTTPStatus.CONFLICT,
-                    {"error": "Station sensors report that this channel is unavailable.", "sessions": sessions, "station": _hardware_status()},
+                    {"error": "Station reports a fault on this channel.", "sessions": sessions, "station": _hardware_status()},
                 )
                 return
             if any(session["portId"] == port_id for session in sessions):
@@ -298,6 +380,25 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
                     {"error": "That port is already in use.", "sessions": sessions},
                 )
                 return
+
+            collection_id = str(request.get("collectionId") or "")
+            payment_method = str(request.get("method", "Cash"))[:20]
+            pending_collection = _public_coin_collection(_coin_collection())
+            if pending_collection and pending_collection["portId"] == port_id and pending_collection["collectionId"] != collection_id:
+                self._send_json(HTTPStatus.CONFLICT, {"error": "That channel is reserved by an active cash payment."})
+                return
+            if payment_method == "Cash" and not collection_id:
+                self._send_json(HTTPStatus.PAYMENT_REQUIRED, {"error": "Cash sessions require a completed physical coin collection."})
+                return
+            if collection_id:
+                collection = _public_coin_collection(_coin_collection())
+                if not collection or collection["collectionId"] != collection_id or collection["portId"] != port_id:
+                    self._send_json(HTTPStatus.CONFLICT, {"error": "The physical coin collection is missing, expired, or belongs to another channel."})
+                    return
+                if collection["status"] != "ready" or collection["insertedAmount"] < collection["targetAmount"]:
+                    self._send_json(HTTPStatus.CONFLICT, {"error": "The selected coin amount has not been fully inserted."})
+                    return
+                duration = collection["insertedAmount"]
 
             now_ms = int(time.time() * 1000)
             watts = 10 if port_id == "wireless-pad" else 9
@@ -308,7 +409,7 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
                 "spec": str(request.get("spec", "")),
                 "device": str(request.get("device", "Phone")),
                 "watts": watts,
-                "paid": f"PHP {duration} - {str(request.get('method', 'Cash'))}",
+                "paid": f"PHP {duration} - {payment_method}",
                 "durationMinutes": duration,
                 "totalSeconds": duration * 60,
                 "remainingSeconds": duration * 60,
@@ -319,7 +420,119 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
             }
             sessions.append(session)
             _save_sessions(sessions)
+            if collection_id:
+                _save_coin_collection(None)
             self._send_json(HTTPStatus.CREATED, {"session": session, "sessions": sessions})
+
+    def _handle_coin_collection_create(self) -> None:
+        try:
+            request = self._read_json()
+            port_id = str(request.get("portId", ""))
+            target_amount = int(request.get("targetAmount", 0))
+            if port_id not in PORT_IDS or not 1 <= target_amount <= 120:
+                raise ValueError("Select a valid channel and a coin target from PHP 1 to PHP 120.")
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+
+        with STATE_LOCK:
+            if not _hardware_status()["online"]:
+                self._send_json(HTTPStatus.CONFLICT, {"error": "The ESP32 station is offline, so the coin acceptor cannot be enabled."})
+                return
+            if _coin_collection():
+                self._send_json(HTTPStatus.CONFLICT, {
+                    "error": "Another customer is already using the shared coin acceptor.",
+                    "collection": _public_coin_collection(_coin_collection()),
+                })
+                return
+            if any(session["portId"] == port_id for session in _active_sessions()):
+                self._send_json(HTTPStatus.CONFLICT, {"error": "That channel already has an active charging session."})
+                return
+            if _hardware_status()["channels"].get(port_id, {}).get("fault"):
+                self._send_json(HTTPStatus.CONFLICT, {"error": "The station reports a fault on that channel."})
+                return
+
+            now_ms = int(time.time() * 1000)
+            collection = {
+                "collectionId": f"coins-{uuid4()}",
+                "portId": port_id,
+                "targetAmount": target_amount,
+                "insertedAmount": 0,
+                "eventCount": 0,
+                "status": "collecting",
+                "createdAt": now_ms,
+                "updatedAt": now_ms,
+                "expiresAt": now_ms + COIN_COLLECTION_TTL_MS,
+                "lastCoinAt": None,
+            }
+            _save_coin_collection(collection)
+            self._send_json(HTTPStatus.CREATED, {"stationId": STATION_ID, "collection": collection})
+
+    def _handle_station_coin(self) -> None:
+        if not STATION_API_KEY:
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "CAMPUSVOLT_STATION_API_KEY is not configured."})
+            return
+        authorization = self.headers.get("Authorization", "")
+        bearer = authorization[7:] if authorization.startswith("Bearer ") else ""
+        supplied_key = self.headers.get("X-CampusVolt-Key", "") or bearer
+        if not supplied_key or not hmac.compare_digest(supplied_key, STATION_API_KEY):
+            self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "Invalid station credentials."})
+            return
+
+        try:
+            request = self._read_json()
+            collection_id = str(request.get("collectionId") or "")[:80]
+            event_id = str(request.get("eventId") or "")[:100]
+            denomination = int(request.get("denomination", 0))
+            pulse_count = int(request.get("pulseCount", 0))
+            if not collection_id or not event_id or denomination not in ACCEPTED_COIN_DENOMINATIONS:
+                raise ValueError("A valid collection, event ID, and denomination are required.")
+            if not 1 <= pulse_count <= 100:
+                raise ValueError("pulseCount must be from 1 to 100.")
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+
+        with STATE_LOCK:
+            payload = _load_state()
+            events = payload.get("coinEvents", {}) if isinstance(payload.get("coinEvents"), dict) else {}
+            collection = _public_coin_collection(_coin_collection())
+            if not collection:
+                self._send_json(HTTPStatus.GONE, {"error": "Coin collection has expired."})
+                return
+            if collection["collectionId"] != collection_id:
+                self._send_json(HTTPStatus.CONFLICT, {"error": "Coin event does not match the active collection."})
+                return
+            if event_id in events:
+                self._send_json(HTTPStatus.OK, {
+                    "accepted": True,
+                    "duplicate": True,
+                    "stationId": STATION_ID,
+                    "collection": collection,
+                })
+                return
+            if collection["status"] not in {"collecting", "ready"}:
+                self._send_json(HTTPStatus.CONFLICT, {"error": "Coin collection is no longer accepting coins."})
+                return
+
+            now_ms = int(time.time() * 1000)
+            collection["insertedAmount"] = min(120, collection["insertedAmount"] + denomination)
+            collection["eventCount"] += 1
+            collection["updatedAt"] = now_ms
+            collection["lastCoinAt"] = now_ms
+            if collection["insertedAmount"] >= collection["targetAmount"]:
+                collection["status"] = "ready"
+            events[event_id] = now_ms
+            events = {key: value for key, value in events.items() if now_ms - int(value) <= 600_000}
+            payload["coinCollection"] = collection
+            payload["coinEvents"] = events
+            _save_state(payload)
+            self._send_json(HTTPStatus.ACCEPTED, {
+                "accepted": True,
+                "duplicate": False,
+                "stationId": STATION_ID,
+                "collection": collection,
+            })
 
     def _handle_station_status(self) -> None:
         if not STATION_API_KEY:
@@ -378,11 +591,28 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
                 "heartbeatTtlSeconds": HARDWARE_TTL_MS // 1000,
                 "station": station,
                 "control": _build_relay_control(active_sessions, received_at),
+                "coinControl": _build_coin_control(_coin_collection(), received_at),
             },
         )
 
     def do_DELETE(self) -> None:
         path = unquote(urlparse(self.path).path)
+        if path == "/api/coin-collections":
+            try:
+                collection_id = str(self._read_json().get("collectionId", ""))
+            except (ValueError, TypeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            with STATE_LOCK:
+                collection = _public_coin_collection(_coin_collection())
+                if not collection or collection["collectionId"] != collection_id:
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "Coin collection not found or expired."})
+                elif collection["insertedAmount"] > 0:
+                    self._send_json(HTTPStatus.CONFLICT, {"error": "A collection containing physical coins cannot be cancelled."})
+                else:
+                    _save_coin_collection(None)
+                    self._send_json(HTTPStatus.OK, {"stationId": STATION_ID, "cancelled": collection_id})
+            return
         if path == "/api/sessions":
             try:
                 port_id = str(self._read_json().get("portId", ""))

@@ -72,7 +72,8 @@ test("physical heartbeat replaces simulated telemetry and expires safely", () =>
   assert.equal(live.battery.soc, 82.5);
   assert.equal(live.solar.powerW, 285);
   assert.equal(live.load.totalPowerW, 51);
-  assert.equal(live.load.activePorts, 2);
+  // Electrical measurements do not claim a channel; only paid sessions do.
+  assert.equal(live.load.activePorts, 0);
   assert.equal(live.system.bmsConnected, true);
   assert.equal(live.system.messageId, "station-01-test-telemetry");
 

@@ -211,7 +211,9 @@ class PortsStateManager extends EventTarget {
 
   _isHardwareInUse(portId) {
     const channel = this.hardwareState.channels?.[portId];
-    return Boolean(this.hardwareState.online && (channel?.inUse || channel?.fault));
+    // Channel ownership comes only from paid sessions. Hardware can still block a
+    // channel when it reports an electrical fault.
+    return Boolean(this.hardwareState.online && channel?.fault);
   }
 
   _initializePorts() {
@@ -672,7 +674,7 @@ class PortsStateManager extends EventTarget {
 
       return {
         source: "station-hardware",
-        activeChannels: Object.values(this.hardwareState.channels).filter(channel => channel?.inUse).length,
+        activeChannels: this.activeSessions.size,
         demandPowerW: nominalDemandW,
         totalPowerW: acPowerW + dcPowerW,
         ac: {
@@ -787,7 +789,7 @@ class PortsStateManager extends EventTarget {
   /**
    * Start a charging session on a port
    */
-  async startSession(portId, durationMinutes, method = "Cash", device = "Phone") {
+  async startSession(portId, durationMinutes, method = "Cash", device = "Phone", payment = {}) {
     this._ensureCurrentDay();
     const port = this.getPort(portId);
     if (!port) {
@@ -807,6 +809,7 @@ class PortsStateManager extends EventTarget {
           durationMinutes,
           method,
           device,
+          collectionId: payment.collectionId || undefined,
         }),
       });
       const payload = await response.json().catch(() => ({}));

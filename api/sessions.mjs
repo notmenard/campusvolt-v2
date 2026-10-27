@@ -4,6 +4,7 @@ import {
   REDIS_URL,
   STATION_ID,
   configurationError,
+  coinCollectionKey,
   jsonResponse,
   portKey,
   readSharedState,
@@ -32,21 +33,38 @@ export async function POST(request) {
   }
 
   const portId = String(input.portId || "");
-  const durationMinutes = Number(input.durationMinutes);
+  let durationMinutes = Number(input.durationMinutes);
   if (!PORT_ID_SET.has(portId) || !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 120) {
     return jsonResponse(400, { error: "Invalid channel or charging duration." });
   }
 
   try {
     const current = await readSharedState();
-    if (current.station.online && (current.station.channels[portId]?.inUse || current.station.channels[portId]?.fault)) {
+    if (current.station.online && current.station.channels[portId]?.fault) {
       return jsonResponse(409, {
-        error: current.station.channels[portId]?.fault
-          ? "Station sensors report a fault on this channel."
-          : "Station sensors report that this channel is already in use.",
+        error: "Station reports a fault on this channel.",
         sessions: current.sessions,
         station: current.station,
       });
+    }
+
+    const collectionId = String(input.collectionId || "");
+    const paymentMethod = String(input.method || "Cash").slice(0, 20);
+    if (current.coinCollection?.portId === portId && current.coinCollection.collectionId !== collectionId) {
+      return jsonResponse(409, { error: "That channel is reserved by an active cash payment." });
+    }
+    if (paymentMethod === "Cash" && !collectionId) {
+      return jsonResponse(402, { error: "Cash sessions require a completed physical coin collection." });
+    }
+    if (collectionId) {
+      const collection = current.coinCollection;
+      if (!collection || collection.collectionId !== collectionId || collection.portId !== portId) {
+        return jsonResponse(409, { error: "The physical coin collection is missing, expired, or belongs to another channel." });
+      }
+      if (collection.status !== "ready" || collection.insertedAmount < collection.targetAmount) {
+        return jsonResponse(409, { error: "The selected coin amount has not been fully inserted." });
+      }
+      durationMinutes = collection.insertedAmount;
     }
 
     const now = Date.now();
@@ -58,7 +76,7 @@ export async function POST(request) {
       spec: String(input.spec || "").slice(0, 200),
       device: String(input.device || "Phone").slice(0, 80),
       watts: portId === "wireless-pad" ? 10 : 9,
-      paid: `PHP ${durationMinutes} - ${String(input.method || "Cash").slice(0, 20)}`,
+      paid: `PHP ${durationMinutes} - ${paymentMethod}`,
       durationMinutes,
       totalSeconds: durationMinutes * 60,
       remainingSeconds: durationMinutes * 60,
@@ -85,6 +103,7 @@ export async function POST(request) {
         station: latest.station,
       });
     }
+    if (collectionId) await redis(["DEL", coinCollectionKey()]);
     return jsonResponse(201, { stationId: STATION_ID, session });
   } catch (error) {
     console.error("Unable to reserve CampusVolt channel", error);

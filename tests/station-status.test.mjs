@@ -8,6 +8,7 @@ process.env.UPSTASH_REDIS_REST_TOKEN = "test-redis-token";
 
 let redisCommands = [];
 let mockSessions = [];
+let mockCoinCollection = null;
 globalThis.fetch = async (_url, options) => {
   const command = JSON.parse(options.body);
   redisCommands.push(command);
@@ -18,6 +19,7 @@ globalThis.fetch = async (_url, options) => {
         return session ? JSON.stringify(session) : null;
       }),
       null,
+      mockCoinCollection ? JSON.stringify(mockCoinCollection) : null,
     ] });
   }
   return Response.json({ result: "OK" });
@@ -131,6 +133,7 @@ test("accepts and stores a complete physical telemetry heartbeat", async () => {
   assert.equal(setCommand.at(-1), 30);
   assert.equal(result.control.channels["outlet-1"].relayOn, false);
   assert.equal(result.control.commandId, "relay:all-off");
+  assert.equal(result.coinControl.enabled, false);
 
   const stored = JSON.parse(setCommand[2]);
   assert.equal(stored.messageId, "station-01-test-1");
@@ -154,11 +157,36 @@ test("returns a leased relay-on command only for a paid active session", async (
   mockSessions = [];
 });
 
+test("returns a leased coin-acceptor command for a dashboard collection", async () => {
+  const now = Date.now();
+  mockCoinCollection = {
+    collectionId: "coins-test-1",
+    portId: "dc-type-c",
+    targetAmount: 10,
+    insertedAmount: 5,
+    eventCount: 1,
+    status: "collecting",
+    createdAt: now,
+    updatedAt: now,
+    expiresAt: now + 60_000,
+  };
+  const response = await POST(request(payload()));
+  const result = await response.json();
+  assert.equal(response.status, 202);
+  assert.equal(result.coinControl.enabled, true);
+  assert.equal(result.coinControl.collectionId, "coins-test-1");
+  assert.equal(result.coinControl.portId, "dc-type-c");
+  assert.ok(result.coinControl.validUntil > now);
+  mockCoinCollection = null;
+});
+
 test("keeps channel-only heartbeats available for staged bring-up", async () => {
   const body = payload();
   delete body.telemetry;
+  for (const channel of Object.values(body.channels)) delete channel.inUse;
   const response = await POST(request(body));
   const result = await response.json();
   assert.equal(response.status, 202);
   assert.equal(result.station.telemetry, null);
+  assert.equal(result.station.channels["outlet-1"].inUse, false);
 });

@@ -30,6 +30,9 @@ export class ChargingModal {
     this.selectedMethod = "Cash"; // "Cash" | "GCash"
     this.selectedDuration = 15; // default 15 mins (₱15)
     this.insertedCoins = 0;
+    this.coinTarget = 15;
+    this.coinCollection = null;
+    this.coinPollTimer = null;
     this.activeStep = "pay-select"; // "pay-select" | "pay-cash" | "pay-gcash" | "confirm" | "connect" | "charging"
     this.activeSession = null;
 
@@ -81,7 +84,7 @@ export class ChargingModal {
     // transport logic to this modal. Send detail.amount for a denomination or
     // detail.total for the coin acceptor's authoritative running total.
     window.addEventListener("campusvolt:coin-input", (event) => {
-      if (this.activeStep !== "pay-cash" || !this.currentPort) return;
+      if (this.activeStep !== "pay-cash" || !this.currentPort || !this.coinCollection) return;
       const detail = event.detail || {};
       if (detail.portId && detail.portId !== this.currentPort.id) return;
 
@@ -113,7 +116,7 @@ export class ChargingModal {
     const existingSession = this.state.getSession(portId);
     const hardwareChannel = this.state.getHardwareChannel(portId);
 
-    if ((hardwareChannel?.inUse || hardwareChannel?.fault) && !existingSession) {
+    if (hardwareChannel?.fault && !existingSession) {
       this.activeSession = null;
       this.showHardwareOccupiedStep(hardwareChannel);
     } else if (port.status === "in-use" || existingSession) {
@@ -134,6 +137,8 @@ export class ChargingModal {
       this.selectedMethod = "Cash";
       this.selectedDuration = 15;
       this.insertedCoins = 0;
+      this.coinTarget = 15;
+      this.coinCollection = null;
       this.showPaySelectStep();
     }
 
@@ -199,6 +204,14 @@ export class ChargingModal {
   }
 
   close() {
+    if (this.coinCollection?.collectionId && this.insertedCoins > 0 && this.activeStep !== "charging") {
+      if (this.cashDisplayElements?.statusTextEl?.isConnected) {
+        this.cashDisplayElements.statusTextEl.textContent = "Inserted physical coins cannot be cancelled. Complete this payment.";
+      }
+      return;
+    }
+    this._stopCoinPolling();
+    this._cancelEmptyCoinCollection();
     if (this.dialog && this.dialog.open) {
       this.dialog.close();
     }
@@ -320,11 +333,12 @@ export class ChargingModal {
     this.activeStep = "pay-cash";
     const port = this.currentPort;
     const t = (k) => i18n.t(k);
+    const isDemo = document.documentElement.dataset.demoMode === "on";
     const demoCoins = demoCoinInput.getState();
-    if (document.documentElement.dataset.demoMode === "on" && demoCoins.portId === port.id) {
+    if (isDemo && demoCoins.portId === port.id) {
       this.insertedCoins = demoCoins.total;
-      this.selectedDuration = demoCoins.total;
     }
+    const collectionActive = Boolean(this.coinCollection);
 
     this.dialog.innerHTML = `
       <div class="modal-card">
@@ -341,7 +355,19 @@ export class ChargingModal {
           </div>
           <p class="modal-instructions">${t("cash_insert_desc")}</p>
 
-          <div class="cash-insert-panel">
+          <div class="coins-simulator-box cash-target-panel">
+            <div class="coin-display-balance">
+              <span class="coin-balance-label">Charging time / coin target</span>
+              <span class="coin-balance-val" id="cash-target-value">₱${this.coinTarget}</span>
+              <span class="coin-minutes-val">${this.coinTarget} minutes</span>
+            </div>
+            <input type="range" id="cash-target-slider" class="modal-linear-slider"
+              min="1" max="120" step="1" value="${this.coinTarget}"
+              ${collectionActive ? "disabled" : ""} aria-label="Cash amount and charging minutes">
+            ${collectionActive ? "" : `<button type="button" class="btn btn--primary btn--full" id="begin-coin-collection-btn">Start accepting coins</button>`}
+          </div>
+
+          <div class="cash-insert-panel" ${collectionActive || isDemo ? "" : "hidden"}>
             <div class="cash-slot" aria-hidden="true">
               <span class="cash-slot__opening"></span>
             </div>
@@ -353,7 +379,7 @@ export class ChargingModal {
 
             <div class="cash-input-status" id="cash-input-status" role="status">
               <span class="cash-input-status__dot" aria-hidden="true"></span>
-              <span id="cash-input-status-text">${this.insertedCoins > 0 ? t("cash_received_status") : t("cash_waiting_status")}</span>
+              <span id="cash-input-status-text">${this.insertedCoins >= this.coinTarget ? "Target reached" : t("cash_waiting_status")}</span>
             </div>
 
             <div class="cash-demo-controls" role="group" aria-label="${t("cash_demo_label")}">
@@ -370,7 +396,7 @@ export class ChargingModal {
             </div>
           </div>
 
-          <button type="button" class="btn btn--primary btn--full cash-confirm-btn" id="confirm-coins-btn" ${this.insertedCoins > 0 ? "" : "hidden disabled"}>
+          <button type="button" class="btn btn--primary btn--full cash-confirm-btn" id="confirm-coins-btn" ${this.insertedCoins >= this.coinTarget ? "" : "hidden disabled"}>
             ${t("cash_proceed_btn")} (₱${this.insertedCoins})
           </button>
 
@@ -385,6 +411,14 @@ export class ChargingModal {
     });
     this.dialog.querySelector("#modal-back-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (this.insertedCoins > 0 && this.coinCollection) {
+        if (this.cashDisplayElements?.statusTextEl) {
+          this.cashDisplayElements.statusTextEl.textContent = "Inserted physical coins cannot be cancelled. Complete this payment.";
+        }
+        return;
+      }
+      this._stopCoinPolling();
+      this._cancelEmptyCoinCollection();
       this.showPaySelectStep();
     });
 
@@ -395,6 +429,37 @@ export class ChargingModal {
       procBtn: this.dialog.querySelector("#confirm-coins-btn"),
     };
     this._updateCashDisplays();
+
+    this.dialog.querySelector("#cash-target-slider")?.addEventListener("input", (event) => {
+      this.coinTarget = Math.max(1, Math.min(120, Number(event.target.value) || 1));
+      this.selectedDuration = this.coinTarget;
+      this.showPayCashStep();
+    });
+    this.dialog.querySelector("#begin-coin-collection-btn")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = "Reserving coin acceptor...";
+      try {
+        if (isDemo) {
+          this.coinCollection = { collectionId: null, portId: port.id, targetAmount: this.coinTarget, status: "collecting" };
+        } else {
+          const response = await fetch("/api/coin-collections", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ portId: port.id, targetAmount: this.coinTarget }),
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.error || "Unable to reserve the coin acceptor.");
+          this.coinCollection = payload.collection;
+          this.insertedCoins = Number(payload.collection.insertedAmount) || 0;
+          this._startCoinPolling();
+        }
+        this.showPayCashStep();
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = error.message || "Unable to start coin collection";
+      }
+    });
 
     this.dialog.querySelectorAll("[data-add-coin]").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -412,9 +477,10 @@ export class ChargingModal {
 
     this.dialog.querySelector("#confirm-coins-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (this.insertedCoins < 1) return;
+      if (this.insertedCoins < this.coinTarget) return;
       this.selectedMethod = "Cash";
-      this.selectedDuration = this.insertedCoins;
+      this.selectedDuration = this.coinCollection?.targetAmount || this.coinTarget;
+      this._stopCoinPolling();
       this.showConfirmStep();
     });
   }
@@ -423,7 +489,6 @@ export class ChargingModal {
     const nextAmount = Math.round(Number(value));
     if (!Number.isFinite(nextAmount) || nextAmount < 0) return;
     this.insertedCoins = Math.min(PRICING_CONFIG.maxDuration, nextAmount);
-    this.selectedDuration = this.insertedCoins;
     this._updateCashDisplays();
   }
 
@@ -431,11 +496,14 @@ export class ChargingModal {
     const elements = this.cashDisplayElements;
     if (!elements) return;
     const hasCoins = this.insertedCoins > 0;
+    const targetReached = this.insertedCoins >= this.coinTarget;
     const t = (key) => i18n.t(key);
 
     if (elements.balEl) elements.balEl.textContent = `₱${this.insertedCoins}`;
     if (elements.statusTextEl) {
-      elements.statusTextEl.textContent = hasCoins ? t("cash_received_status") : t("cash_waiting_status");
+      elements.statusTextEl.textContent = targetReached
+        ? "Target reached — continue to confirmation"
+        : (hasCoins ? `Received ₱${this.insertedCoins}; ₱${this.coinTarget - this.insertedCoins} remaining` : t("cash_waiting_status"));
     }
     elements.statusEl?.classList.toggle("cash-input-status--received", hasCoins);
     this.dialog.querySelectorAll("[data-remove-coin]").forEach((button) => {
@@ -443,9 +511,46 @@ export class ChargingModal {
     });
     if (elements.procBtn) {
       elements.procBtn.textContent = `${t("cash_proceed_btn")} (₱${this.insertedCoins})`;
-      elements.procBtn.hidden = !hasCoins;
-      elements.procBtn.disabled = !hasCoins;
+      elements.procBtn.hidden = !targetReached;
+      elements.procBtn.disabled = !targetReached;
     }
+  }
+
+  _startCoinPolling() {
+    this._stopCoinPolling();
+    const collectionId = this.coinCollection?.collectionId;
+    if (!collectionId) return;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/coin-collections?collectionId=${encodeURIComponent(collectionId)}`, { cache: "no-store" });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "Coin collection unavailable.");
+        this.coinCollection = payload.collection;
+        this._setInsertedCoins(payload.collection.insertedAmount);
+        if (payload.collection.status === "ready") this._stopCoinPolling();
+      } catch (error) {
+        if (this.cashDisplayElements?.statusTextEl) this.cashDisplayElements.statusTextEl.textContent = error.message;
+      }
+    };
+    poll();
+    this.coinPollTimer = setInterval(poll, 1000);
+  }
+
+  _stopCoinPolling() {
+    if (this.coinPollTimer) clearInterval(this.coinPollTimer);
+    this.coinPollTimer = null;
+  }
+
+  _cancelEmptyCoinCollection() {
+    const collection = this.coinCollection;
+    if (!collection?.collectionId || Number(collection.insertedAmount) > 0) return;
+    this.coinCollection = null;
+    fetch("/api/coin-collections", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collectionId: collection.collectionId }),
+      keepalive: true,
+    }).catch(() => {});
   }
 
   /**
@@ -726,9 +831,13 @@ export class ChargingModal {
         const session = await this.state.startSession(
           this.currentPort.id,
           this.selectedDuration,
-          this.selectedMethod,
-          "Phone"
+          this.selectedMethod === "Cash" && document.documentElement.dataset.demoMode === "on"
+            ? "Demo Cash"
+            : this.selectedMethod,
+          "Phone",
+          { collectionId: this.selectedMethod === "Cash" ? this.coinCollection?.collectionId : null }
         );
+        this.coinCollection = null;
         this.activeSession = session;
         this.showChargingStep(session);
       } catch (error) {

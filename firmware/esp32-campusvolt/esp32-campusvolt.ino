@@ -9,11 +9,40 @@
 
 namespace {
 constexpr char kApiUrl[] = "https://campusvolt-v2.vercel.app/api/station-status";
+constexpr char kCoinApiUrl[] = "https://campusvolt-v2.vercel.app/api/station-coins";
 constexpr char kStationId[] = "station-01";
-constexpr char kFirmwareVersion[] = "0.2.0-relay-control";
+constexpr char kFirmwareVersion[] = "0.3.0-coin-control";
 constexpr uint32_t kHeartbeatIntervalMs = 5000;
 constexpr uint32_t kWifiRetryIntervalMs = 5000;
 constexpr uint32_t kMaximumCommandLeaseMs = 15000;
+constexpr uint32_t kCoinPulseDebounceUs = 18000;
+constexpr uint32_t kCoinPulseTrainGapMs = 350;
+constexpr uint32_t kCoinRetryIntervalMs = 2000;
+
+#ifndef CAMPUSVOLT_COIN_SIGNAL_PIN
+#define CAMPUSVOLT_COIN_SIGNAL_PIN -1
+#endif
+#ifndef CAMPUSVOLT_COIN_INHIBIT_PIN
+#define CAMPUSVOLT_COIN_INHIBIT_PIN -1
+#endif
+#ifndef CAMPUSVOLT_COIN_SIGNAL_ACTIVE_LOW
+#define CAMPUSVOLT_COIN_SIGNAL_ACTIVE_LOW 1
+#endif
+#ifndef CAMPUSVOLT_COIN_INHIBIT_ACTIVE_HIGH
+#define CAMPUSVOLT_COIN_INHIBIT_ACTIVE_HIGH 1
+#endif
+#ifndef CAMPUSVOLT_COIN_PULSES_1_PHP
+#define CAMPUSVOLT_COIN_PULSES_1_PHP 1
+#endif
+#ifndef CAMPUSVOLT_COIN_PULSES_5_PHP
+#define CAMPUSVOLT_COIN_PULSES_5_PHP 5
+#endif
+#ifndef CAMPUSVOLT_COIN_PULSES_10_PHP
+#define CAMPUSVOLT_COIN_PULSES_10_PHP 10
+#endif
+#ifndef CAMPUSVOLT_COIN_PULSES_20_PHP
+#define CAMPUSVOLT_COIN_PULSES_20_PHP 20
+#endif
 
 const char* kChannelIds[] = {
   "outlet-1", "outlet-2", "dc-type-c", "dc-micro-usb",
@@ -55,7 +84,6 @@ const int8_t kRelayPins[kChannelCount] = {
 };
 
 struct ChannelReading {
-  bool inUse;
   float watts;
   float voltageV;
   float currentA;
@@ -83,6 +111,58 @@ uint32_t bootId = 0;
 bool relayStates[kChannelCount] = {false, false, false, false, false, false};
 uint32_t relayLeaseDeadlines[kChannelCount] = {0, 0, 0, 0, 0, 0};
 String lastAppliedCommandId;
+String activeCoinCollectionId;
+volatile bool coinAcceptorEnabled = false;
+uint32_t coinLeaseDeadline = 0;
+volatile uint16_t coinPulseCount = 0;
+volatile uint32_t lastCoinPulseUs = 0;
+uint32_t coinEventSequence = 0;
+uint32_t lastCoinPostAttemptAt = 0;
+
+struct PendingCoinEvent {
+  bool active;
+  String collectionId;
+  String eventId;
+  uint16_t pulseCount;
+  uint8_t denomination;
+};
+PendingCoinEvent pendingCoin = {false, "", "", 0, 0};
+
+void setCoinAcceptorEnabled(bool enabled) {
+  enabled = enabled && CAMPUSVOLT_COIN_SIGNAL_PIN >= 0 && CAMPUSVOLT_COIN_INHIBIT_PIN >= 0;
+  coinAcceptorEnabled = enabled;
+  if (CAMPUSVOLT_COIN_INHIBIT_PIN < 0) return;
+  const uint8_t enabledLevel = CAMPUSVOLT_COIN_INHIBIT_ACTIVE_HIGH ? LOW : HIGH;
+  digitalWrite(CAMPUSVOLT_COIN_INHIBIT_PIN, enabled ? enabledLevel : (enabledLevel == HIGH ? LOW : HIGH));
+}
+
+void IRAM_ATTR onCoinPulse() {
+  if (!coinAcceptorEnabled) return;
+  const uint32_t nowUs = micros();
+  if (nowUs - lastCoinPulseUs < kCoinPulseDebounceUs) return;
+  lastCoinPulseUs = nowUs;
+  if (coinPulseCount < 100) ++coinPulseCount;
+}
+
+uint8_t denominationForPulses(uint16_t pulses) {
+  if (pulses == CAMPUSVOLT_COIN_PULSES_1_PHP) return 1;
+  if (pulses == CAMPUSVOLT_COIN_PULSES_5_PHP) return 5;
+  if (pulses == CAMPUSVOLT_COIN_PULSES_10_PHP) return 10;
+  if (pulses == CAMPUSVOLT_COIN_PULSES_20_PHP) return 20;
+  return 0;
+}
+
+void initializeCoinAcceptorFailClosed() {
+  if (CAMPUSVOLT_COIN_INHIBIT_PIN >= 0) {
+    pinMode(CAMPUSVOLT_COIN_INHIBIT_PIN, OUTPUT);
+    setCoinAcceptorEnabled(false);
+  }
+  if (CAMPUSVOLT_COIN_SIGNAL_PIN >= 0) {
+    pinMode(CAMPUSVOLT_COIN_SIGNAL_PIN, CAMPUSVOLT_COIN_SIGNAL_ACTIVE_LOW ? INPUT_PULLUP : INPUT_PULLDOWN);
+    attachInterrupt(digitalPinToInterrupt(CAMPUSVOLT_COIN_SIGNAL_PIN), onCoinPulse,
+      CAMPUSVOLT_COIN_SIGNAL_ACTIVE_LOW ? FALLING : RISING);
+  }
+}
 
 void writeRelayLevel(size_t index, bool enabled) {
   const int8_t pin = kRelayPins[index];
@@ -116,17 +196,11 @@ void initializeRelaysFailClosed() {
   }
 }
 
-bool updateOccupancyWithHysteresis(bool previous, float watts) {
-  constexpr float kTurnOnThresholdW = 1.5f;
-  constexpr float kTurnOffThresholdW = 0.5f;
-  return previous ? watts >= kTurnOffThresholdW : watts >= kTurnOnThresholdW;
-}
-
 ChannelReading readChannel(size_t channelIndex) {
   // Replace this safe placeholder with the calibrated PZEM/DC sensor adapter
   // for channelId. Never energize a relay solely because the cloud is online.
   (void)channelIndex;
-  return {false, 0.0f, 0.0f, 0.0f, relayStates[channelIndex], nullptr};
+  return {0.0f, 0.0f, 0.0f, relayStates[channelIndex], nullptr};
 }
 
 StationTelemetry readStationTelemetry() {
@@ -150,6 +224,33 @@ void maintainLocalElectricalSafety() {
       setRelayOutput(index, false);
     }
   }
+  if (coinAcceptorEnabled
+      && (coinLeaseDeadline == 0 || static_cast<int32_t>(now - coinLeaseDeadline) >= 0)) {
+    setCoinAcceptorEnabled(false);
+    activeCoinCollectionId = "";
+  }
+}
+
+void applyCoinControl(JsonObject control) {
+  if (control.isNull() || control["schemaVersion"].as<int>() != 1) {
+    setCoinAcceptorEnabled(false);
+    return;
+  }
+  const int64_t nowEpochMs = static_cast<int64_t>(time(nullptr)) * 1000LL;
+  const int64_t validUntil = control["validUntil"] | 0LL;
+  const bool enabled = (control["enabled"] | false) && !pendingCoin.active;
+  const String collectionId = String(control["collectionId"] | "");
+  if (!enabled || collectionId.isEmpty() || validUntil <= nowEpochMs) {
+    setCoinAcceptorEnabled(false);
+    activeCoinCollectionId = "";
+    return;
+  }
+  activeCoinCollectionId = collectionId;
+  const int64_t requestedLeaseMs = validUntil - nowEpochMs;
+  const int64_t remainingMs = requestedLeaseMs < kMaximumCommandLeaseMs
+    ? requestedLeaseMs : kMaximumCommandLeaseMs;
+  coinLeaseDeadline = millis() + static_cast<uint32_t>(remainingMs);
+  setCoinAcceptorEnabled(true);
 }
 
 bool applyRelayControl(const String& responseBody) {
@@ -188,8 +289,63 @@ bool applyRelayControl(const String& responseBody) {
     else fullyApplied = false;
   }
 
+  applyCoinControl(response["coinControl"].as<JsonObject>());
   if (fullyApplied) lastAppliedCommandId = String(control["commandId"] | "");
   return fullyApplied;
+}
+
+void captureCompletedCoinPulseTrain() {
+  if (!coinAcceptorEnabled || pendingCoin.active) return;
+  noInterrupts();
+  const uint16_t pulses = coinPulseCount;
+  const uint32_t lastPulse = lastCoinPulseUs;
+  interrupts();
+  if (pulses == 0 || (micros() - lastPulse) / 1000 < kCoinPulseTrainGapMs) return;
+  noInterrupts();
+  coinPulseCount = 0;
+  interrupts();
+  const uint8_t denomination = denominationForPulses(pulses);
+  if (!denomination) {
+    Serial.printf("Rejected unknown coin pulse train: %u pulses.\n", pulses);
+    return;
+  }
+  pendingCoin = {
+    true,
+    activeCoinCollectionId,
+    String(kStationId) + "-coin-" + String(bootId, HEX) + "-" + String(++coinEventSequence),
+    pulses,
+    denomination,
+  };
+  setCoinAcceptorEnabled(false);
+}
+
+void postPendingCoinEvent() {
+  if (!pendingCoin.active || WiFi.status() != WL_CONNECTED || !clockIsSynchronized()) return;
+  const uint32_t now = millis();
+  if (now - lastCoinPostAttemptAt < kCoinRetryIntervalMs) return;
+  lastCoinPostAttemptAt = now;
+
+  JsonDocument document;
+  document["collectionId"] = pendingCoin.collectionId;
+  document["eventId"] = pendingCoin.eventId;
+  document["denomination"] = pendingCoin.denomination;
+  document["pulseCount"] = pendingCoin.pulseCount;
+  String body;
+  serializeJson(document, body);
+
+  WiFiClientSecure tls;
+  tls.setCACert(CAMPUSVOLT_ROOT_CA);
+  HTTPClient http;
+  if (!http.begin(tls, kCoinApiUrl)) return;
+  http.addHeader("Authorization", String("Bearer ") + CAMPUSVOLT_STATION_API_KEY);
+  http.addHeader("Content-Type", "application/json");
+  const int status = http.POST(body);
+  const String response = http.getString();
+  http.end();
+  Serial.printf("Coin event HTTP %d: %s\n", status, response.c_str());
+  if (status == HTTP_CODE_OK || status == HTTP_CODE_ACCEPTED || status == HTTP_CODE_GONE || status == HTTP_CODE_CONFLICT) {
+    pendingCoin.active = false;
+  }
 }
 
 bool clockIsSynchronized() {
@@ -222,7 +378,6 @@ bool sendHeartbeat() {
     const char* channelId = kChannelIds[index];
     const ChannelReading reading = readChannel(index);
     JsonObject channel = channels[channelId].to<JsonObject>();
-    channel["inUse"] = reading.inUse;
     channel["watts"] = reading.watts;
     channel["voltageV"] = reading.voltageV;
     channel["currentA"] = reading.currentA;
@@ -270,6 +425,7 @@ void setup() {
   Serial.begin(115200);
   bootId = esp_random();
   initializeRelaysFailClosed();
+  initializeCoinAcceptorFailClosed();
   WiFi.setAutoReconnect(true);
   connectWifiIfNeeded();
   configTime(0, 0, "pool.ntp.org", "time.google.com");
@@ -277,6 +433,8 @@ void setup() {
 
 void loop() {
   maintainLocalElectricalSafety();
+  captureCompletedCoinPulseTrain();
+  postPendingCoinEvent();
   connectWifiIfNeeded();
 
   const uint32_t now = millis();

@@ -13,15 +13,18 @@ de-energized state until they are matched to the final schematic.
    and the current trusted root CA for `campusvolt-v2.vercel.app`.
 4. Set all six `CAMPUSVOLT_RELAY_PIN_*` values and relay polarity only after
    checking the final schematic. A pin left at `-1` refuses on commands.
-5. Replace `readChannel()` with the two PZEM-004T adapters and four calibrated
+5. Configure the shared coin acceptor signal/inhibit pins and pulse mapping.
+   Use an optocoupler or proper level shifter; never connect a 12 V pulse output
+   directly to an ESP32 GPIO. Pins left at `-1` keep the acceptor disabled.
+6. Replace `readChannel()` with the two PZEM-004T adapters and four calibrated
    DC-channel adapters.
-6. Replace `readStationTelemetry()` with the Gentai BMS and solar-controller
+7. Replace `readStationTelemetry()` with the Gentai BMS and solar-controller
    adapters.
-7. Add over-current, temperature, BMS, and emergency-stop shutdown rules to
+8. Add over-current, temperature, BMS, and emergency-stop shutdown rules to
    `maintainLocalElectricalSafety()`; these always override cloud commands.
-8. Confirm current direction: positive means charging the battery; negative
+9. Confirm current direction: positive means charging the battery; negative
    means discharging it.
-9. Run the PowerShell heartbeat and relay workflow before flashing physical
+10. Run the PowerShell heartbeat, coin, and relay workflow before flashing physical
    sensor code.
 
 ## Relay behavior
@@ -41,3 +44,15 @@ leave the output off.
 Do not use `WiFiClientSecure::setInsecure()` in a deployed kiosk. Cloud
 connectivity must never be required for over-current, temperature, BMS, relay,
 or emergency-stop protection.
+
+## Coin workflow
+
+The customer selects a channel and target amount on the dashboard. The next
+heartbeat returns a short-lived `coinControl` lease. Only then does the ESP32
+enable the shared acceptor. It groups pulses, maps them to PHP 1/5/10/20, and
+posts idempotent events to `/api/station-coins`. After the target is reached,
+the website creates the paid session and the normal relay lease starts.
+
+The website session—not a plug-presence sensor—owns channel availability. The
+firmware reports electrical measurements and faults but does not attempt to
+detect whether a phone is physically plugged in.

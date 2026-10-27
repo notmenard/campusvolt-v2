@@ -12,7 +12,11 @@ param(
   [string]$ActiveChannel = "outlet-1",
 
   [ValidateSet("match", "none", "outlet-1", "outlet-2", "dc-type-c", "dc-micro-usb", "dc-lightning", "wireless-pad")]
-  [string]$RelayChannel = "match"
+  [string]$RelayChannel = "match",
+
+  [string[]]$ActiveChannels,
+
+  [string[]]$RelayChannels
 )
 
 $channelIds = @(
@@ -24,10 +28,69 @@ $channelIds = @(
   "wireless-pad"
 )
 
+function Resolve-ChannelSelection {
+  param(
+    [string[]]$Values,
+    [bool]$AllowMatch = $false
+  )
+
+  $tokens = @(
+    $Values |
+      ForEach-Object { $_ -split "," } |
+      ForEach-Object { $_.Trim().ToLowerInvariant() } |
+      Where-Object { $_ }
+  )
+
+  if ($tokens.Count -eq 0) {
+    throw "At least one channel ID, 'none', or 'match' must be provided."
+  }
+  if ($tokens -contains "match") {
+    if (-not $AllowMatch -or $tokens.Count -ne 1) {
+      throw "'match' must be used by itself and is only valid for relay channels."
+    }
+    return [pscustomobject]@{ MatchActive = $true; Channels = @() }
+  }
+  if ($tokens -contains "none") {
+    if ($tokens.Count -ne 1) {
+      throw "'none' cannot be combined with channel IDs."
+    }
+    return [pscustomobject]@{ MatchActive = $false; Channels = @() }
+  }
+
+  $invalidChannels = @($tokens | Where-Object { $channelIds -notcontains $_ } | Select-Object -Unique)
+  if ($invalidChannels.Count -gt 0) {
+    throw "Unknown channel ID(s): $($invalidChannels -join ', ')."
+  }
+
+  return [pscustomobject]@{
+    MatchActive = $false
+    Channels = @($tokens | Select-Object -Unique)
+  }
+}
+
+$activeSelection = if ($PSBoundParameters.ContainsKey("ActiveChannels")) {
+  Resolve-ChannelSelection -Values $ActiveChannels
+} else {
+  Resolve-ChannelSelection -Values @($ActiveChannel)
+}
+
+$relaySelection = if ($PSBoundParameters.ContainsKey("RelayChannels")) {
+  Resolve-ChannelSelection -Values $RelayChannels -AllowMatch $true
+} else {
+  Resolve-ChannelSelection -Values @($RelayChannel) -AllowMatch $true
+}
+
+$selectedActiveChannels = @($activeSelection.Channels)
+$selectedRelayChannels = if ($relaySelection.MatchActive) {
+  $selectedActiveChannels
+} else {
+  @($relaySelection.Channels)
+}
+
 $channels = @{}
 foreach ($channelId in $channelIds) {
-  $isActive = $channelId -eq $ActiveChannel
-  $isRelayOn = if ($RelayChannel -eq "match") { $isActive } else { $channelId -eq $RelayChannel }
+  $isActive = $selectedActiveChannels -contains $channelId
+  $isRelayOn = $selectedRelayChannels -contains $channelId
   $isAc = $channelId.StartsWith("outlet-")
   $voltage = if ($isAc) { 220.0 } else { 5.1 }
   $watts = if ($isActive -and $isRelayOn) { if ($isAc) { 42.0 } else { 9.0 } } else { 0.0 }
