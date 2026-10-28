@@ -128,6 +128,10 @@ struct PendingCoinEvent {
 };
 PendingCoinEvent pendingCoin = {false, "", "", 0, 0};
 
+// Forward declaration because coin-event delivery checks the synchronized
+// clock before the function's definition later in this translation unit.
+bool clockIsSynchronized();
+
 void setCoinAcceptorEnabled(bool enabled) {
   enabled = enabled && CAMPUSVOLT_COIN_SIGNAL_PIN >= 0 && CAMPUSVOLT_COIN_INHIBIT_PIN >= 0;
   coinAcceptorEnabled = enabled;
