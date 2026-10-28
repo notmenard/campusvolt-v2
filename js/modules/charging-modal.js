@@ -384,12 +384,10 @@ export class ChargingModal {
               <button type="button" class="coin-btn" data-add-coin="1">+ ₱1</button>
               <button type="button" class="coin-btn" data-add-coin="5">+ ₱5</button>
               <button type="button" class="coin-btn coin-btn--recommended" data-add-coin="10">+ ₱10</button>
-              <button type="button" class="coin-btn" data-add-coin="20">+ ₱20</button>
               <span class="cash-demo-controls__label cash-demo-controls__label--remove">${t("cash_demo_remove_label")}</span>
               <button type="button" class="coin-btn coin-btn--remove" data-remove-coin="1">− ₱1</button>
               <button type="button" class="coin-btn coin-btn--remove" data-remove-coin="5">− ₱5</button>
               <button type="button" class="coin-btn coin-btn--remove" data-remove-coin="10">− ₱10</button>
-              <button type="button" class="coin-btn coin-btn--remove" data-remove-coin="20">− ₱20</button>
             </div>
           </div>
 

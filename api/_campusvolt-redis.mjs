@@ -18,7 +18,7 @@ export const STATION_ID = String(process.env.CAMPUSVOLT_STATION_ID || "station-0
 const HARDWARE_TTL_MS = 30_000;
 export const RELAY_COMMAND_LEASE_MS = 15_000;
 export const COIN_COLLECTION_TTL_SECONDS = 300;
-export const ACCEPTED_COIN_DENOMINATIONS = [1, 5, 10, 20];
+export const ACCEPTED_COIN_DENOMINATIONS = [1, 5, 10];
 
 export function jsonResponse(status, payload) {
   return Response.json(payload, {

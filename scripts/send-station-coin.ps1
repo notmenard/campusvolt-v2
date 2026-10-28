@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$CollectionId,
 
-    [ValidateSet(1, 5, 10, 20)]
+    [ValidateSet(1, 5, 10)]
     [int]$Denomination = 1,
 
     [ValidateRange(1, 100)]

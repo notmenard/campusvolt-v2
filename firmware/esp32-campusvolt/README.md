@@ -16,9 +16,10 @@ de-energized state until they are matched to the final schematic.
    Outlet 2 remain `-1` until the Q9/Q10 stages are tested separately. Confirm
    the four-relay module's trigger polarity before connecting any load; a pin
    left at `-1` refuses on commands.
-5. Configure the shared coin acceptor signal/inhibit pins and pulse mapping.
-   Use an optocoupler or proper level shifter; never connect a 12 V pulse output
-   directly to an ESP32 GPIO. Pins left at `-1` keep the acceptor disabled.
+5. The Allan selector signal is ESP32 GPIO27, confirmed by continuity from the
+   PC817 output on the final assembly. The four-wire selector has no inhibit
+   input, so leave the inhibit pin at `-1`. Never connect its 12 V COIN output
+   directly to an ESP32 GPIO; it must remain behind the PC817 interface.
 6. Replace `readChannel()` with the two PZEM-004T adapters and four calibrated
    DC-channel adapters.
 7. Replace `readStationTelemetry()` with the Gentai BMS and solar-controller
@@ -52,9 +53,13 @@ or emergency-stop protection.
 
 The customer selects a channel and target amount on the dashboard. The next
 heartbeat returns a short-lived `coinControl` lease. Only then does the ESP32
-enable the shared acceptor. It groups pulses, maps them to PHP 1/5/10/20, and
+enable coin capture. It groups pulses and maps them to PHP 1/5/10, and
 posts idempotent events to `/api/station-coins`. After the target is reached,
 the website creates the paid session and the normal relay lease starts.
+
+The six Allan profiles use duplicate value mappings: both old/new PHP 1 coins
+use `P=1`, both old/new PHP 5 coins use `P=5`, and both old/new PHP 10 coins use
+`P=10`. Keep AP mode at `1` so the configured pulse counts reach the ESP32.
 
 The website session—not a plug-presence sensor—owns channel availability. The
 firmware reports electrical measurements and faults but does not attempt to

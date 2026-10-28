@@ -11,7 +11,7 @@ namespace {
 constexpr char kApiUrl[] = "https://campusvolt-v2.vercel.app/api/station-status";
 constexpr char kCoinApiUrl[] = "https://campusvolt-v2.vercel.app/api/station-coins";
 constexpr char kStationId[] = "station-01";
-constexpr char kFirmwareVersion[] = "0.3.0-coin-control";
+constexpr char kFirmwareVersion[] = "0.4.1-coin-pulse-debug";
 constexpr uint32_t kHeartbeatIntervalMs = 5000;
 constexpr uint32_t kWifiRetryIntervalMs = 5000;
 constexpr uint32_t kMaximumCommandLeaseMs = 15000;
@@ -39,9 +39,6 @@ constexpr uint32_t kCoinRetryIntervalMs = 2000;
 #endif
 #ifndef CAMPUSVOLT_COIN_PULSES_10_PHP
 #define CAMPUSVOLT_COIN_PULSES_10_PHP 10
-#endif
-#ifndef CAMPUSVOLT_COIN_PULSES_20_PHP
-#define CAMPUSVOLT_COIN_PULSES_20_PHP 20
 #endif
 
 const char* kChannelIds[] = {
@@ -71,7 +68,7 @@ constexpr size_t kChannelCount = sizeof(kChannelIds) / sizeof(kChannelIds[0]);
 #define CAMPUSVOLT_RELAY_PIN_WIRELESS -1
 #endif
 #ifndef CAMPUSVOLT_RELAY_ACTIVE_HIGH
-#define CAMPUSVOLT_RELAY_ACTIVE_HIGH 1
+#define CAMPUSVOLT_RELAY_ACTIVE_HIGH 0
 #endif
 
 const int8_t kRelayPins[kChannelCount] = {
@@ -116,6 +113,7 @@ volatile bool coinAcceptorEnabled = false;
 uint32_t coinLeaseDeadline = 0;
 volatile uint16_t coinPulseCount = 0;
 volatile uint32_t lastCoinPulseUs = 0;
+uint16_t lastReportedCoinPulseCount = 0;
 uint32_t coinEventSequence = 0;
 uint32_t lastCoinPostAttemptAt = 0;
 
@@ -133,8 +131,20 @@ PendingCoinEvent pendingCoin = {false, "", "", 0, 0};
 bool clockIsSynchronized();
 
 void setCoinAcceptorEnabled(bool enabled) {
-  enabled = enabled && CAMPUSVOLT_COIN_SIGNAL_PIN >= 0 && CAMPUSVOLT_COIN_INHIBIT_PIN >= 0;
+  // The four-wire Allan selector has no inhibit input. In that configuration
+  // the selector remains physically powered and firmware ignores pulses unless
+  // the backend has issued an active coin-collection lease.
+  const bool wasEnabled = coinAcceptorEnabled;
+  enabled = enabled && CAMPUSVOLT_COIN_SIGNAL_PIN >= 0;
   coinAcceptorEnabled = enabled;
+  if (enabled != wasEnabled) {
+    Serial.printf(
+      "Coin capture %s on GPIO%d (input level=%s).\n",
+      enabled ? "ENABLED" : "DISABLED",
+      CAMPUSVOLT_COIN_SIGNAL_PIN,
+      CAMPUSVOLT_COIN_SIGNAL_PIN >= 0 && digitalRead(CAMPUSVOLT_COIN_SIGNAL_PIN) == HIGH ? "HIGH" : "LOW"
+    );
+  }
   if (CAMPUSVOLT_COIN_INHIBIT_PIN < 0) return;
   const uint8_t enabledLevel = CAMPUSVOLT_COIN_INHIBIT_ACTIVE_HIGH ? LOW : HIGH;
   digitalWrite(CAMPUSVOLT_COIN_INHIBIT_PIN, enabled ? enabledLevel : (enabledLevel == HIGH ? LOW : HIGH));
@@ -152,7 +162,6 @@ uint8_t denominationForPulses(uint16_t pulses) {
   if (pulses == CAMPUSVOLT_COIN_PULSES_1_PHP) return 1;
   if (pulses == CAMPUSVOLT_COIN_PULSES_5_PHP) return 5;
   if (pulses == CAMPUSVOLT_COIN_PULSES_10_PHP) return 10;
-  if (pulses == CAMPUSVOLT_COIN_PULSES_20_PHP) return 20;
   return 0;
 }
 
@@ -165,7 +174,26 @@ void initializeCoinAcceptorFailClosed() {
     pinMode(CAMPUSVOLT_COIN_SIGNAL_PIN, CAMPUSVOLT_COIN_SIGNAL_ACTIVE_LOW ? INPUT_PULLUP : INPUT_PULLDOWN);
     attachInterrupt(digitalPinToInterrupt(CAMPUSVOLT_COIN_SIGNAL_PIN), onCoinPulse,
       CAMPUSVOLT_COIN_SIGNAL_ACTIVE_LOW ? FALLING : RISING);
+    Serial.printf(
+      "Coin input ready: GPIO%d, active-%s, idle level=%s.\n",
+      CAMPUSVOLT_COIN_SIGNAL_PIN,
+      CAMPUSVOLT_COIN_SIGNAL_ACTIVE_LOW ? "LOW" : "HIGH",
+      digitalRead(CAMPUSVOLT_COIN_SIGNAL_PIN) == HIGH ? "HIGH" : "LOW"
+    );
+  } else {
+    Serial.println("Coin input disabled: CAMPUSVOLT_COIN_SIGNAL_PIN is not configured.");
   }
+}
+
+void reportCoinPulseProgress() {
+  if (!coinAcceptorEnabled) return;
+  noInterrupts();
+  const uint16_t pulses = coinPulseCount;
+  interrupts();
+  if (pulses == 0 || pulses == lastReportedCoinPulseCount) return;
+  lastReportedCoinPulseCount = pulses;
+  Serial.printf("Coin pulse counted on GPIO%d: %u pulse(s) so far.\n",
+    CAMPUSVOLT_COIN_SIGNAL_PIN, pulses);
 }
 
 void writeRelayLevel(size_t index, bool enabled) {
@@ -308,6 +336,8 @@ void captureCompletedCoinPulseTrain() {
   noInterrupts();
   coinPulseCount = 0;
   interrupts();
+  lastReportedCoinPulseCount = 0;
+  Serial.printf("Coin pulse train complete: %u pulse(s).\n", pulses);
   const uint8_t denomination = denominationForPulses(pulses);
   if (!denomination) {
     Serial.printf("Rejected unknown coin pulse train: %u pulses.\n", pulses);
@@ -437,6 +467,7 @@ void setup() {
 
 void loop() {
   maintainLocalElectricalSafety();
+  reportCoinPulseProgress();
   captureCompletedCoinPulseTrain();
   postPendingCoinEvent();
   connectWifiIfNeeded();

@@ -17,19 +17,21 @@
 // Confirm the four-relay module's trigger polarity before connecting loads.
 #define CAMPUSVOLT_RELAY_ACTIVE_HIGH 0
 
-// One shared pulse-output coin acceptor. Leave pins at -1 until the final
-// wiring and voltage-level interface have been verified. Never connect a
-// 12 V coin signal directly to an ESP32 GPIO.
-#define CAMPUSVOLT_COIN_SIGNAL_PIN -1
+// One shared four-wire Allan pulse-output coin selector. Continuity testing on
+// the final assembly confirmed the PC817 output reaches ESP32 GPIO27. This
+// hardware has no inhibit wire, so the inhibit pin remains -1. Never connect
+// the selector's 12 V COIN wire directly to an ESP32 GPIO.
+#define CAMPUSVOLT_COIN_SIGNAL_PIN 27
 #define CAMPUSVOLT_COIN_INHIBIT_PIN -1
 #define CAMPUSVOLT_COIN_SIGNAL_ACTIVE_LOW 1
 #define CAMPUSVOLT_COIN_INHIBIT_ACTIVE_HIGH 1
 
-// Calibrate these pulse counts to the programmed coin acceptor.
+// Program the six Allan profiles as follows:
+// old/new PHP 1 -> P=1, old/new PHP 5 -> P=5,
+// old/new PHP 10 -> P=10. AP mode must remain 1.
 #define CAMPUSVOLT_COIN_PULSES_1_PHP 1
 #define CAMPUSVOLT_COIN_PULSES_5_PHP 5
 #define CAMPUSVOLT_COIN_PULSES_10_PHP 10
-#define CAMPUSVOLT_COIN_PULSES_20_PHP 20
 
 // PEM root certificate for the certificate chain used by campusvolt-v2.vercel.app.
 // Keep certificate validation enabled; do not replace this with setInsecure().

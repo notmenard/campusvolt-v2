@@ -294,6 +294,24 @@ class LocalStationEndpointTests(unittest.TestCase):
                 self.assertTrue(accepted["coinControl"]["enabled"])
                 self.assertEqual(accepted["coinControl"]["collectionId"], collection_id)
 
+                unsupported_coin_request = Request(
+                    f"{base_url}/api/station-coins",
+                    data=json.dumps({
+                        "collectionId": collection_id,
+                        "eventId": "unsupported-20-peso-coin",
+                        "denomination": 20,
+                        "pulseCount": 20,
+                    }).encode("utf-8"),
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {server.STATION_API_KEY}",
+                    },
+                    method="POST",
+                )
+                with self.assertRaises(HTTPError) as unsupported_coin:
+                    urlopen(unsupported_coin_request, timeout=5)
+                self.assertEqual(unsupported_coin.exception.code, 400)
+
                 for index, denomination in enumerate((10, 5), start=1):
                     status, coin = post("/api/station-coins", {
                         "collectionId": collection_id,

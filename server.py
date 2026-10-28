@@ -41,7 +41,7 @@ STATION_ID = os.environ.get("CAMPUSVOLT_STATION_ID", "station-01")
 STATION_API_KEY = os.environ.get("CAMPUSVOLT_STATION_API_KEY", "")
 RELAY_COMMAND_LEASE_MS = 15_000
 COIN_COLLECTION_TTL_MS = 300_000
-ACCEPTED_COIN_DENOMINATIONS = {1, 5, 10, 20}
+ACCEPTED_COIN_DENOMINATIONS = {1, 5, 10}
 
 
 def _bounded_number(value: object, minimum: float, maximum: float, field_name: str) -> float:
