@@ -50,6 +50,9 @@ export async function POST(request) {
 
     const collectionId = String(input.collectionId || "");
     const paymentMethod = String(input.method || "Cash").slice(0, 20);
+    if (paymentMethod.toLowerCase() === "gcash") {
+      return jsonResponse(503, { error: "GCash payments are temporarily unavailable." });
+    }
     if (current.coinCollection?.portId === portId && current.coinCollection.collectionId !== collectionId) {
       return jsonResponse(409, { error: "That channel is reserved by an active cash payment." });
     }

@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import server
@@ -179,6 +180,21 @@ class LocalStationEndpointTests(unittest.TestCase):
                     self.assertEqual(shared["station"]["messageId"], "local-round-trip")
                     self.assertEqual(shared["station"]["telemetry"]["battery"]["soc"], 82.5)
                     self.assertEqual(shared["station"]["telemetry"]["solar"]["powerW"], 285)
+
+                gcash_request = Request(
+                    f"{base_url}/api/sessions",
+                    data=json.dumps({
+                        "portId": "outlet-1",
+                        "durationMinutes": 15,
+                        "method": "GCash",
+                    }).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(HTTPError) as rejected_gcash:
+                    urlopen(gcash_request, timeout=5)
+                self.assertEqual(rejected_gcash.exception.code, 503)
+                self.assertIn("temporarily unavailable", rejected_gcash.exception.read().decode("utf-8"))
 
                 session_request = Request(
                     f"{base_url}/api/sessions",

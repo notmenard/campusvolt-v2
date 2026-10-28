@@ -383,6 +383,9 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
 
             collection_id = str(request.get("collectionId") or "")
             payment_method = str(request.get("method", "Cash"))[:20]
+            if payment_method.lower() == "gcash":
+                self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "GCash payments are temporarily unavailable."})
+                return
             pending_collection = _public_coin_collection(_coin_collection())
             if pending_collection and pending_collection["portId"] == port_id and pending_collection["collectionId"] != collection_id:
                 self._send_json(HTTPStatus.CONFLICT, {"error": "That channel is reserved by an active cash payment."})

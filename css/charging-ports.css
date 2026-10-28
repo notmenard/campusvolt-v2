@@ -588,6 +588,19 @@
   box-shadow: 0 6px 16px rgba(47, 165, 140, 0.18);
 }
 
+.payment-method-card--disabled,
+.payment-method-card--disabled:hover {
+  cursor: not-allowed;
+  opacity: 0.48;
+  filter: grayscale(0.65);
+  transform: none;
+  box-shadow: none;
+}
+
+.payment-method-card--disabled .payment-method-sub {
+  color: #f6c96f;
+}
+
 .payment-method-image {
   display: block;
   width: 48px;
