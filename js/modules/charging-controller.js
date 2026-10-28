@@ -5,7 +5,7 @@
 
 import { portsState } from "./ports-state.js?v=5";
 import { PortsRenderer } from "./ports-renderer.js";
-import { ChargingModal } from "./charging-modal.js?v=7";
+import { ChargingModal } from "./charging-modal.js?v=8";
 import { telemetryStore } from "./telemetry-store.js?v=6";
 import { kioskPreferences } from "./kiosk-preferences.js?v=4";
 import { soundAlerts } from "./sound-alerts.js?v=2";

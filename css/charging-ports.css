@@ -590,15 +590,35 @@
 
 .payment-method-card--disabled,
 .payment-method-card--disabled:hover {
+  position: relative;
   cursor: not-allowed;
-  opacity: 0.48;
-  filter: grayscale(0.65);
+  border-color: rgba(246, 201, 111, 0.22);
+  background: #12201e;
   transform: none;
   box-shadow: none;
 }
 
+.payment-method-card--disabled .payment-method-icon,
+.payment-method-card--disabled .payment-method-title,
 .payment-method-card--disabled .payment-method-sub {
+  opacity: 0.42;
+  filter: grayscale(0.7);
+}
+
+.payment-method-status-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 5px 9px;
+  border: 1px solid rgba(246, 201, 111, 0.38);
+  border-radius: 999px;
+  background: rgba(246, 201, 111, 0.1);
   color: #f6c96f;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .payment-method-image {

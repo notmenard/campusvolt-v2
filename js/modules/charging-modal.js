@@ -294,11 +294,12 @@ export class ChargingModal {
             <!-- GCash Option -->
             <button type="button" class="payment-method-card payment-method-card--disabled" id="btn-select-gcash"
               data-method="GCash" disabled aria-disabled="true" title="GCash is temporarily unavailable">
+              <span class="payment-method-status-badge">Unavailable</span>
               <div class="payment-method-icon payment-method-icon--gcash" aria-hidden="true">
                 <img class="payment-method-image payment-method-image--gcash" src="../images/payment-gcash-campusvolt.png?v=1" alt="">
               </div>
               <h3 class="payment-method-title">${t("modal_gcash_title")}</h3>
-              <p class="payment-method-sub">Temporarily unavailable</p>
+              <p class="payment-method-sub">${t("modal_gcash_sub")}</p>
             </button>
           </div>
 
