@@ -11,8 +11,11 @@ de-energized state until they are matched to the final schematic.
 2. Copy `secrets.example.h` to `secrets.h`.
 3. Add the Wi-Fi credentials, the same station API key configured in Vercel,
    and the current trusted root CA for `campusvolt-v2.vercel.app`.
-4. Set all six `CAMPUSVOLT_RELAY_PIN_*` values and relay polarity only after
-   checking the final schematic. A pin left at `-1` refuses on commands.
+4. The initial DC-only mapping from the 2026-10-28 schematic is Type-C GPIO25,
+   Micro USB GPIO26, Lightning GPIO32, and Wireless GPIO5. Outlet 1 and
+   Outlet 2 remain `-1` until the Q9/Q10 stages are tested separately. Confirm
+   the four-relay module's trigger polarity before connecting any load; a pin
+   left at `-1` refuses on commands.
 5. Configure the shared coin acceptor signal/inhibit pins and pulse mapping.
    Use an optocoupler or proper level shifter; never connect a 12 V pulse output
    directly to an ESP32 GPIO. Pins left at `-1` keep the acceptor disabled.

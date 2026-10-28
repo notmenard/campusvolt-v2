@@ -7,6 +7,7 @@
 
 import { PORT_CATEGORIES, PRICING_CONFIG } from "./ports-config.js";
 import { telemetryStore } from "./telemetry-store.js?v=6";
+import { kioskPreferences } from "./kiosk-preferences.js?v=4";
 
 const STORAGE_KEY_SESSIONS = "cv_charging_sessions";
 const STORAGE_KEY_PORTS = "cv_ports_status";
@@ -52,7 +53,15 @@ class PortsStateManager extends EventTarget {
 
     this._initializePorts();
     this._setupGlobalListeners();
+    this._ensureDemoTelemetry();
     this._setupSharedSync();
+  }
+
+  _ensureDemoTelemetry() {
+    if (!kioskPreferences.isDemoModeEnabled()) return;
+    const current = telemetryStore.getSnapshot();
+    if (current.source !== "station-hardware") return;
+    telemetryStore.reset();
   }
 
   _setupSharedSync() {
@@ -119,17 +128,30 @@ class PortsStateManager extends EventTarget {
   }
 
   _applyStationTelemetry(station) {
+    // Demo mode is an explicitly authorized bench/demo path. Keep the real
+    // station online state and relay commands, but do not let its intentionally
+    // incomplete sensor payload replace the simulated BMS policy snapshot.
+    if (kioskPreferences.isDemoModeEnabled()) {
+      this._ensureDemoTelemetry();
+      return;
+    }
+
     const current = telemetryStore.getSnapshot();
     if (!station.online || !station.telemetry) {
-      if (current.source === "station-hardware" && current.system.bmsConnected) {
-        telemetryStore.update({
-          system: {
-            connected: Boolean(station.online),
-            bmsConnected: false,
-            latencyMs: station.latencyMs ?? current.system.latencyMs,
-          },
-        }, { recordHistory: false });
-      }
+      telemetryStore.update({
+        source: "station-hardware",
+        scenario: "physical-station",
+        battery: {
+          status: "idle",
+          protection: "bms-disconnected",
+        },
+        system: {
+          connected: Boolean(station.online),
+          bmsConnected: false,
+          latencyMs: station.latencyMs ?? current.system.latencyMs,
+          updatedAt: station.updatedAt ?? Date.now(),
+        },
+      }, { recordHistory: false });
       return;
     }
 
@@ -342,6 +364,14 @@ class PortsStateManager extends EventTarget {
     window.addEventListener("storage", (e) => {
       if (e.key === STORAGE_KEY_SESSIONS || e.key === STORAGE_KEY_PORTS || e.key === STORAGE_KEY_STATS) {
         this._syncFromExternalStorage();
+      }
+    });
+
+    kioskPreferences.addEventListener("demo-mode-changed", (event) => {
+      if (event.detail?.enabled) {
+        this._ensureDemoTelemetry();
+      } else {
+        this._applyStationTelemetry(this.hardwareState);
       }
     });
 

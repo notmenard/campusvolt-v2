@@ -5,15 +5,17 @@
 #define CAMPUSVOLT_WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 #define CAMPUSVOLT_STATION_API_KEY "PASTE_THE_VERCEL_STATION_API_KEY"
 
-// Replace -1 only after checking the final schematic and relay-driver polarity.
+// DC-first test configuration traced from the 2026-10-28 schematic.
+// AC outlets remain disabled until the Q9/Q10 stages are tested separately.
 // Unconfigured outputs remain fail-closed and refuse relay-on commands.
 #define CAMPUSVOLT_RELAY_PIN_OUTLET_1 -1
 #define CAMPUSVOLT_RELAY_PIN_OUTLET_2 -1
-#define CAMPUSVOLT_RELAY_PIN_TYPE_C -1
-#define CAMPUSVOLT_RELAY_PIN_MICRO_USB -1
-#define CAMPUSVOLT_RELAY_PIN_LIGHTNING -1
-#define CAMPUSVOLT_RELAY_PIN_WIRELESS -1
-#define CAMPUSVOLT_RELAY_ACTIVE_HIGH 1
+#define CAMPUSVOLT_RELAY_PIN_TYPE_C 25
+#define CAMPUSVOLT_RELAY_PIN_MICRO_USB 26
+#define CAMPUSVOLT_RELAY_PIN_LIGHTNING 32
+#define CAMPUSVOLT_RELAY_PIN_WIRELESS 5
+// Confirm the four-relay module's trigger polarity before connecting loads.
+#define CAMPUSVOLT_RELAY_ACTIVE_HIGH 0
 
 // One shared pulse-output coin acceptor. Leave pins at -1 until the final
 // wiring and voltage-level interface have been verified. Never connect a
