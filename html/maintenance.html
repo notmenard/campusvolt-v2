@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1614">
+  <title>CampusVolt • Maintenance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/maintenance.css?v=1">
+  <script type="module" src="../js/maintenance.js?v=1"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="../html/settings.html">← Settings</a>
+    <div class="station-pill" id="station-pill"><span></span><b>Checking station…</b></div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div><p class="eyebrow">Restricted administrator tool</p><h1>Hardware maintenance</h1>
+        <p>Short, fail-closed tests for the four HW-298 outputs, Allan coin selector, and INA channel readings.</p></div>
+      <button class="danger" id="stop-all" type="button" disabled>Stop all tests</button>
+    </section>
+
+    <section class="login card" id="login-panel">
+      <div><p class="eyebrow">Administrator login</p><h2>Unlock maintenance controls</h2>
+        <p>The password is verified by the server. Authorization expires after 30 minutes.</p></div>
+      <form id="login-form">
+        <label>Password <input id="admin-password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Unlock</button>
+      </form>
+      <p class="message" id="login-message" role="alert"></p>
+    </section>
+
+    <div id="maintenance-content" hidden>
+      <section class="notice"><b>Bench-test safety:</b> Disconnect customer devices before energizing an output. Each test lasts at most five seconds and customer sessions take priority.</section>
+
+      <section class="card">
+        <div class="section-heading"><div><p class="eyebrow">HW-298 / relay test</p><h2>DC output channels</h2></div><p id="relay-status">No output test active.</p></div>
+        <div class="channel-grid" id="relay-grid"></div>
+      </section>
+
+      <section class="card coin-card">
+        <div><p class="eyebrow">Allan selector</p><h2>Coin pulse test</h2>
+          <p>Runs for two minutes. Coins are recorded as diagnostics only and do not add charging time.</p></div>
+        <div class="coin-result"><span>Detected value</span><strong id="coin-total">₱0</strong><small id="coin-detail">0 accepted pulse trains</small></div>
+        <button id="coin-test" type="button">Start coin test</button>
+      </section>
+
+      <section class="card">
+        <div class="section-heading"><div><p class="eyebrow">INA telemetry</p><h2>Live voltage, current, and power</h2></div><p id="telemetry-age">Waiting for ESP32 data…</p></div>
+        <div class="table-wrap"><table><thead><tr><th>Channel</th><th>Voltage</th><th>Current</th><th>Power</th><th>Relay</th><th>Fault</th></tr></thead><tbody id="ina-body"></tbody></table></div>
+        <p class="footnote">These values come from the latest station heartbeat. A zero reading is only meaningful after the INA219 adapters are implemented and calibrated in the production firmware.</p>
+      </section>
+
+      <button class="logout" id="logout" type="button">Lock maintenance console</button>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </main>
+</body>
+</html>

@@ -51,6 +51,9 @@ export async function POST(request) {
     if (shared.sessions.some((session) => session.portId === portId)) {
       return jsonResponse(409, { error: "That channel already has an active charging session." });
     }
+    if (shared.maintenanceCoin) {
+      return jsonResponse(409, { error: "The coin acceptor is currently reserved for an administrator test." });
+    }
     if (shared.station.online && shared.station.channels[portId]?.fault) {
       return jsonResponse(409, { error: "The station reports a fault on that channel." });
     }

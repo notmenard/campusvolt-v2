@@ -17,6 +17,7 @@ import os
 import threading
 import time
 from http import HTTPStatus
+from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -42,6 +43,9 @@ STATION_API_KEY = os.environ.get("CAMPUSVOLT_STATION_API_KEY", "")
 RELAY_COMMAND_LEASE_MS = 15_000
 COIN_COLLECTION_TTL_MS = 300_000
 ACCEPTED_COIN_DENOMINATIONS = {1, 5, 10}
+MAINTENANCE_PORT_IDS = {"dc-type-c", "dc-micro-usb", "dc-lightning", "wireless-pad"}
+ADMIN_PASSWORD = os.environ.get("CAMPUSVOLT_ADMIN_PASSWORD", "")
+ADMIN_SESSIONS: dict[str, float] = {}
 
 
 def _bounded_number(value: object, minimum: float, maximum: float, field_name: str) -> float:
@@ -224,17 +228,31 @@ def _active_sessions() -> list[dict]:
     return active
 
 
-def _build_relay_control(sessions: list[dict], issued_at: int | None = None) -> dict:
+def _maintenance_state() -> dict | None:
+    state = _load_state().get("maintenance")
+    if not isinstance(state, dict) or state.get("portId") not in MAINTENANCE_PORT_IDS:
+        return None
+    if int(state.get("expiresAt", 0)) <= int(time.time() * 1000):
+        return None
+    return state
+
+
+def _maintenance_coin() -> dict | None:
+    return _public_coin_collection(_load_state().get("maintenanceCoin"))
+
+
+def _build_relay_control(sessions: list[dict], issued_at: int | None = None, maintenance: dict | None = None) -> dict:
     issued_at = issued_at if issued_at is not None else int(time.time() * 1000)
     active_by_port = {
         session["portId"]: session
         for session in sessions
         if session.get("portId") in PORT_IDS and int(session.get("endTime", 0)) > issued_at
     }
+    relay_test = maintenance if not active_by_port else None
     fingerprint = ",".join(
         f"{port_id}@{int(active_by_port[port_id]['endTime'])}"
         for port_id in sorted(active_by_port)
-    ) or "all-off"
+    ) or (f"maintenance-{relay_test['portId']}@{int(relay_test['expiresAt'])}" if relay_test else "all-off")
     valid_until = issued_at + RELAY_COMMAND_LEASE_MS
     return {
         "schemaVersion": 1,
@@ -243,9 +261,10 @@ def _build_relay_control(sessions: list[dict], issued_at: int | None = None) -> 
         "validUntil": valid_until,
         "channels": {
             port_id: {
-                "relayOn": port_id in active_by_port,
+                "relayOn": port_id in active_by_port or bool(relay_test and relay_test["portId"] == port_id),
                 "authorizedUntil": min(int(active_by_port[port_id]["endTime"]), valid_until)
-                if port_id in active_by_port else None,
+                if port_id in active_by_port else min(int(relay_test["expiresAt"]), valid_until)
+                if relay_test and relay_test["portId"] == port_id else None,
             }
             for port_id in PORT_IDS
         },
@@ -303,11 +322,13 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
-    def _send_json(self, status: int, payload: dict) -> None:
+    def _send_json(self, status: int, payload: dict, headers: dict | None = None) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -319,6 +340,17 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
         if not isinstance(payload, dict):
             raise ValueError("JSON object required")
         return payload
+
+    def _admin_authorized(self) -> bool:
+        cookie = SimpleCookie(self.headers.get("Cookie", ""))
+        token = cookie.get("campusvolt_admin")
+        if not token:
+            return False
+        expires = ADMIN_SESSIONS.get(token.value, 0)
+        if expires <= time.time():
+            ADMIN_SESSIONS.pop(token.value, None)
+            return False
+        return True
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -338,6 +370,19 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
                 else:
                     self._send_json(HTTPStatus.OK, {"stationId": STATION_ID, "collection": collection})
             return
+        if parsed.path == "/api/admin-session":
+            self._send_json(HTTPStatus.OK, {"configured": bool(ADMIN_PASSWORD and STATION_API_KEY), "authorized": self._admin_authorized()})
+            return
+        if parsed.path == "/api/maintenance":
+            if not self._admin_authorized():
+                self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "Administrator authorization is required."})
+                return
+            with STATE_LOCK:
+                self._send_json(HTTPStatus.OK, {
+                    "stationId": STATION_ID, "station": _hardware_status(), "activeSessions": _active_sessions(),
+                    "relayTest": _maintenance_state(), "coinTest": _maintenance_coin(),
+                })
+            return
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -350,6 +395,27 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/coin-collections":
             self._handle_coin_collection_create()
+            return
+        if path == "/api/admin-session":
+            if not ADMIN_PASSWORD or not STATION_API_KEY:
+                self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "CAMPUSVOLT_ADMIN_PASSWORD is not configured on the server."})
+                return
+            try:
+                password = str(self._read_json().get("password", ""))
+            except (ValueError, TypeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            if not hmac.compare_digest(password, ADMIN_PASSWORD):
+                self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "Incorrect administrator password."})
+                return
+            token = str(uuid4())
+            ADMIN_SESSIONS[token] = time.time() + 1800
+            self._send_json(HTTPStatus.OK, {"authorized": True, "expiresInSeconds": 1800}, {
+                "Set-Cookie": f"campusvolt_admin={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=1800"
+            })
+            return
+        if path == "/api/maintenance":
+            self._handle_maintenance()
             return
         if path != "/api/sessions":
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -448,6 +514,9 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
                     "collection": _public_coin_collection(_coin_collection()),
                 })
                 return
+            if _maintenance_coin():
+                self._send_json(HTTPStatus.CONFLICT, {"error": "The coin acceptor is currently reserved for an administrator test."})
+                return
             if any(session["portId"] == port_id for session in _active_sessions()):
                 self._send_json(HTTPStatus.CONFLICT, {"error": "That channel already has an active charging session."})
                 return
@@ -470,6 +539,66 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
             }
             _save_coin_collection(collection)
             self._send_json(HTTPStatus.CREATED, {"stationId": STATION_ID, "collection": collection})
+
+    def _handle_maintenance(self) -> None:
+        if not self._admin_authorized():
+            self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "Administrator authorization is required."})
+            return
+        try:
+            request = self._read_json()
+            action = str(request.get("action", ""))
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+
+        with STATE_LOCK:
+            payload = _load_state()
+            if action == "stop-all":
+                payload.pop("maintenance", None)
+                payload.pop("maintenanceCoin", None)
+                _save_state(payload)
+                self._send_json(HTTPStatus.OK, {"stopped": True})
+                return
+            if not _hardware_status()["online"]:
+                self._send_json(HTTPStatus.CONFLICT, {"error": "The ESP32 station is offline."})
+                return
+            if action == "test-relay":
+                port_id = str(request.get("portId", ""))
+                if port_id not in MAINTENANCE_PORT_IDS:
+                    self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Only the four DC/HW-298 channels can be tested here."})
+                    return
+                if _active_sessions() or _coin_collection():
+                    self._send_json(HTTPStatus.CONFLICT, {"error": "A customer session or coin collection is active. Maintenance output tests are locked."})
+                    return
+                if _hardware_status()["channels"].get(port_id, {}).get("fault"):
+                    self._send_json(HTTPStatus.CONFLICT, {"error": "The ESP32 reports a fault on this channel."})
+                    return
+                now_ms = int(time.time() * 1000)
+                relay_test = {"portId": port_id, "createdAt": now_ms, "expiresAt": now_ms + 5000}
+                payload["maintenance"] = relay_test
+                _save_state(payload)
+                self._send_json(HTTPStatus.ACCEPTED, {"relayTest": relay_test})
+                return
+            if action == "start-coin-test":
+                if _coin_collection():
+                    self._send_json(HTTPStatus.CONFLICT, {"error": "A customer is already using the coin acceptor."})
+                    return
+                now_ms = int(time.time() * 1000)
+                coin_test = {
+                    "collectionId": f"maintenance-{uuid4()}", "portId": "dc-type-c", "targetAmount": 120,
+                    "insertedAmount": 0, "eventCount": 0, "status": "collecting", "createdAt": now_ms,
+                    "updatedAt": now_ms, "expiresAt": now_ms + 120_000, "lastCoinAt": None,
+                }
+                payload["maintenanceCoin"] = coin_test
+                _save_state(payload)
+                self._send_json(HTTPStatus.CREATED, {"coinTest": coin_test})
+                return
+            if action == "stop-coin-test":
+                payload.pop("maintenanceCoin", None)
+                _save_state(payload)
+                self._send_json(HTTPStatus.OK, {"stopped": True})
+                return
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Unknown maintenance action."})
 
     def _handle_station_coin(self) -> None:
         if not STATION_API_KEY:
@@ -499,7 +628,9 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
         with STATE_LOCK:
             payload = _load_state()
             events = payload.get("coinEvents", {}) if isinstance(payload.get("coinEvents"), dict) else {}
-            collection = _public_coin_collection(_coin_collection())
+            normal_collection = _public_coin_collection(_coin_collection())
+            maintenance_collection = _maintenance_coin()
+            collection = normal_collection if normal_collection and normal_collection["collectionId"] == collection_id else maintenance_collection
             if not collection:
                 self._send_json(HTTPStatus.GONE, {"error": "Coin collection has expired."})
                 return
@@ -527,7 +658,10 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
                 collection["status"] = "ready"
             events[event_id] = now_ms
             events = {key: value for key, value in events.items() if now_ms - int(value) <= 600_000}
-            payload["coinCollection"] = collection
+            if normal_collection and normal_collection["collectionId"] == collection_id:
+                payload["coinCollection"] = collection
+            else:
+                payload["maintenanceCoin"] = collection
             payload["coinEvents"] = events
             _save_state(payload)
             self._send_json(HTTPStatus.ACCEPTED, {
@@ -593,13 +727,22 @@ class CampusVoltHandler(SimpleHTTPRequestHandler):
                 "accepted": True,
                 "heartbeatTtlSeconds": HARDWARE_TTL_MS // 1000,
                 "station": station,
-                "control": _build_relay_control(active_sessions, received_at),
-                "coinControl": _build_coin_control(_coin_collection(), received_at),
+                "control": _build_relay_control(active_sessions, received_at, _maintenance_state()),
+                "coinControl": _build_coin_control(_coin_collection() or _maintenance_coin(), received_at),
             },
         )
 
     def do_DELETE(self) -> None:
         path = unquote(urlparse(self.path).path)
+        if path == "/api/admin-session":
+            cookie = SimpleCookie(self.headers.get("Cookie", ""))
+            token = cookie.get("campusvolt_admin")
+            if token:
+                ADMIN_SESSIONS.pop(token.value, None)
+            self._send_json(HTTPStatus.OK, {"authorized": False}, {
+                "Set-Cookie": "campusvolt_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
+            })
+            return
         if path == "/api/coin-collections":
             try:
                 collection_id = str(self._read_json().get("collectionId", ""))

@@ -64,3 +64,20 @@ use `P=1`, both old/new PHP 5 coins use `P=5`, and both old/new PHP 10 coins use
 The website session—not a plug-presence sensor—owns channel availability. The
 firmware reports electrical measurements and faults but does not attempt to
 detect whether a phone is physically plugged in.
+
+## Administrator maintenance console
+
+Set `CAMPUSVOLT_ADMIN_PASSWORD` on Vercel and in the PowerShell window used to
+start the local Python server. It is separate from the station API key and must
+never be placed in `secrets.h` or browser JavaScript. Open **Settings → Hardware
+maintenance** to access the protected console.
+
+The console can issue one five-second DC/HW-298 output lease, run an isolated
+two-minute Allan coin test, and show the latest voltage/current/power fields
+from each station heartbeat. Maintenance coins never create customer credit.
+Customer sessions override output tests, and an offline ESP32 cannot be tested.
+
+The INA table is already connected to `channels.*.voltageV`, `currentA`, and
+`watts`, but the production sketch still returns safe zero placeholders from
+`readChannel()`. Install and calibrate the actual INA219 adapters only after
+their I2C addresses and shunt values are confirmed; do not guess these values.

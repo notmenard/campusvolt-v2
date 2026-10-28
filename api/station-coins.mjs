@@ -5,6 +5,7 @@ import {
   REDIS_URL,
   STATION_ID,
   coinCollectionKey,
+  maintenanceCoinKey,
   coinEventKey,
   configurationError,
   jsonResponse,
@@ -73,11 +74,18 @@ export async function POST(request) {
 
   try {
     const now = Date.now();
+    const collections = await redis(["MGET", coinCollectionKey(), maintenanceCoinKey()]);
+    const normal = publicCoinCollection(Array.isArray(collections) ? collections[0] : null);
+    const maintenance = publicCoinCollection(Array.isArray(collections) ? collections[1] : null);
+    const collectionKey = normal?.collectionId === collectionId
+      ? coinCollectionKey()
+      : maintenance?.collectionId === collectionId ? maintenanceCoinKey() : null;
+    if (!collectionKey) return jsonResponse(409, { error: "Coin event does not match the active collection." });
     const result = await redis([
       "EVAL",
       ACCEPT_COIN_SCRIPT,
       2,
-      coinCollectionKey(),
+      collectionKey,
       coinEventKey(eventId),
       collectionId,
       denomination,

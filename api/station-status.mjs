@@ -188,8 +188,8 @@ export async function POST(request) {
       accepted: true,
       heartbeatTtlSeconds: HEARTBEAT_TTL_SECONDS,
       station: shared.station.online ? shared.station : publicHardwareState(hardware),
-      control: buildRelayControl(shared.sessions, receivedAt),
-      coinControl: buildCoinControl(shared.coinCollection, receivedAt),
+      control: buildRelayControl(shared.sessions, receivedAt, shared.maintenance),
+      coinControl: buildCoinControl(shared.coinCollection || shared.maintenanceCoin, receivedAt),
     });
   } catch (error) {
     console.error("Unable to save CampusVolt hardware heartbeat", error);

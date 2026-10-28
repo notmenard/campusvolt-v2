@@ -19,6 +19,8 @@ const HARDWARE_TTL_MS = 30_000;
 export const RELAY_COMMAND_LEASE_MS = 15_000;
 export const COIN_COLLECTION_TTL_SECONDS = 300;
 export const ACCEPTED_COIN_DENOMINATIONS = [1, 5, 10];
+export const MAINTENANCE_PORT_IDS = ["dc-type-c", "dc-micro-usb", "dc-lightning", "wireless-pad"];
+export const MAINTENANCE_PORT_ID_SET = new Set(MAINTENANCE_PORT_IDS);
 
 export function jsonResponse(status, payload) {
   return Response.json(payload, {
@@ -47,6 +49,22 @@ export function coinCollectionKey() {
 
 export function coinEventKey(eventId) {
   return `campusvolt:${STATION_ID}:coin-event:${eventId}`;
+}
+
+export function maintenanceKey() {
+  return `campusvolt:${STATION_ID}:maintenance`;
+}
+
+export function maintenanceCoinKey() {
+  return `campusvolt:${STATION_ID}:maintenance-coin`;
+}
+
+export function publicMaintenance(value) {
+  const state = typeof value === "string" ? parseJson(value) : value;
+  if (!state || typeof state !== "object") return null;
+  const expiresAt = Number(state.expiresAt) || 0;
+  if (expiresAt <= Date.now() || !MAINTENANCE_PORT_ID_SET.has(state.portId)) return null;
+  return { portId: state.portId, createdAt: Number(state.createdAt) || null, expiresAt };
 }
 
 export function publicCoinCollection(value) {
@@ -90,24 +108,28 @@ export function buildCoinControl(collection, issuedAt = Date.now()) {
   };
 }
 
-export function buildRelayControl(sessions, issuedAt = Date.now()) {
+export function buildRelayControl(sessions, issuedAt = Date.now(), maintenance = null) {
   const activeByPort = new Map(
     (Array.isArray(sessions) ? sessions : [])
       .filter((session) => PORT_ID_SET.has(session?.portId) && Number(session?.endTime) > issuedAt)
       .map((session) => [session.portId, session]),
   );
+  const relayTest = activeByPort.size === 0 ? publicMaintenance(maintenance) : null;
   const fingerprint = [...activeByPort.values()]
     .sort((left, right) => left.portId.localeCompare(right.portId))
     .map((session) => `${session.portId}@${Number(session.endTime)}`)
-    .join(",") || "all-off";
+    .join(",") || (relayTest ? `maintenance-${relayTest.portId}@${relayTest.expiresAt}` : "all-off");
   const validUntil = issuedAt + RELAY_COMMAND_LEASE_MS;
   const channels = {};
 
   for (const portId of PORT_IDS) {
     const session = activeByPort.get(portId);
+    const maintenanceOn = Boolean(relayTest && relayTest.portId === portId && relayTest.expiresAt > issuedAt);
     channels[portId] = {
-      relayOn: Boolean(session),
-      authorizedUntil: session ? Math.min(Number(session.endTime), validUntil) : null,
+      relayOn: Boolean(session) || maintenanceOn,
+      authorizedUntil: session
+        ? Math.min(Number(session.endTime), validUntil)
+        : maintenanceOn ? Math.min(relayTest.expiresAt, validUntil) : null,
     };
   }
 
@@ -198,6 +220,8 @@ export async function readSharedState() {
     ...PORT_IDS.map(portKey),
     hardwareKey(),
     coinCollectionKey(),
+    maintenanceKey(),
+    maintenanceCoinKey(),
   ]);
   const rows = Array.isArray(values) ? values : [];
   const sessions = rows
@@ -206,5 +230,7 @@ export async function readSharedState() {
     .filter(Boolean);
   const station = publicHardwareState(rows[PORT_IDS.length]);
   const coinCollection = publicCoinCollection(rows[PORT_IDS.length + 1]);
-  return { sessions, station, coinCollection };
+  const maintenance = publicMaintenance(rows[PORT_IDS.length + 2]);
+  const maintenanceCoin = publicCoinCollection(rows[PORT_IDS.length + 3]);
+  return { sessions, station, coinCollection, maintenance, maintenanceCoin };
 }
