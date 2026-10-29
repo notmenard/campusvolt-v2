@@ -42,22 +42,35 @@ function renderStationTelemetry(snapshot) {
   const ring = document.getElementById("battery-ring");
   const sourceBadge = document.getElementById("telemetry-source-badge");
   const notice = document.getElementById("telemetry-notice");
+  const bmsConnected = Boolean(system.bmsConnected);
+  const batteryValue = (value, digits = 0) => bmsConnected && Number.isFinite(Number(value))
+    ? Number(value).toFixed(digits)
+    : "—";
 
-  text("battery-percent-value", Math.round(battery.soc));
-  if (ring) ring.style.setProperty("--progress", Math.max(0, Math.min(100, battery.soc)));
-  text("battery-status-value", titleCase(battery.status));
-  text("battery-detail-soc-value", Math.round(battery.soc));
-  text("battery-detail-status-value", titleCase(battery.status));
-  text("battery-est-full-value", battery.status === "charging" ? formatMinutes(battery.estimatedMinutesToFull) : "—");
-  text("battery-runtime-value", battery.status === "discharging" ? formatMinutes(battery.estimatedRuntimeMinutes) : "—");
-  text("battery-capacity-kwh-value", (battery.ratedEnergyWh / 1000).toFixed(2));
-  text("battery-pack-voltage-value", battery.voltage.toFixed(2));
-  text("battery-current-value", `${battery.currentA >= 0 ? "+" : ""}${battery.currentA.toFixed(2)}`);
-  text("battery-power-value", `${battery.powerW >= 0 ? "+" : ""}${Math.round(battery.powerW)}`);
-  text("battery-remaining-kwh-value", (battery.remainingEnergyWh / 1000).toFixed(2));
-  text("battery-temperature-value", battery.temperatureC.toFixed(1));
-  text("battery-health-value", battery.healthPercent.toFixed(0));
-  text("battery-cell-delta-value", battery.cellDeltaMv.toFixed(0));
+  text("battery-percent-value", bmsConnected ? Math.round(battery.soc) : "—");
+  if (ring) ring.style.setProperty("--progress", bmsConnected ? Math.max(0, Math.min(100, battery.soc)) : 0);
+  text("battery-ring-caption", bmsConnected ? "CHARGED" : "NO BMS");
+  text("battery-bms-link-value", bmsConnected ? "Connected · BLE" : "Disconnected · charging bypass active");
+  text("battery-status-value", bmsConnected ? titleCase(battery.status) : "BMS disconnected");
+  text("battery-detail-soc-value", bmsConnected ? Math.round(battery.soc) : "—");
+  text("battery-detail-status-value", bmsConnected ? titleCase(battery.status) : "BMS disconnected");
+  text("battery-est-full-value", bmsConnected && battery.status === "charging" ? formatMinutes(battery.estimatedMinutesToFull) : "—");
+  text("battery-runtime-value", bmsConnected && battery.status === "discharging" ? formatMinutes(battery.estimatedRuntimeMinutes) : "—");
+  text("battery-capacity-kwh-value", bmsConnected ? (battery.ratedEnergyWh / 1000).toFixed(2) : "—");
+  text("battery-remaining-kwh-value", bmsConnected ? (battery.remainingEnergyWh / 1000).toFixed(2) : "—");
+  text("battery-capacity-ah-value", batteryValue(battery.ratedCapacityAh, 2));
+  text("battery-remaining-ah-value", batteryValue(battery.remainingAh, 2));
+  text("battery-pack-voltage-value", batteryValue(battery.voltage, 3));
+  text("battery-current-value", bmsConnected
+    ? `${battery.currentA >= 0 ? "+" : ""}${Number(battery.currentA).toFixed(3)}` : "—");
+  text("battery-power-value", bmsConnected
+    ? `${battery.powerW >= 0 ? "+" : ""}${Number(battery.powerW).toFixed(2)}` : "—");
+  text("battery-temperature-value", batteryValue(battery.temperatureC, 1));
+  text("battery-health-value", batteryValue(battery.healthPercent, 0));
+  text("battery-cycle-count-value", bmsConnected ? Math.round(Number(battery.cycleCount) || 0) : "—");
+  text("battery-cell-min-value", batteryValue(battery.cellMinVoltage, 3));
+  text("battery-cell-max-value", batteryValue(battery.cellMaxVoltage, 3));
+  text("battery-cell-delta-value", batteryValue(battery.cellDeltaMv, 0));
   text("battery-protection-value", titleCase(battery.protection));
   text("battery-updated-value", formatTelemetryAge(system.updatedAt));
 

@@ -14,7 +14,7 @@
     rel="stylesheet">
   <link rel="stylesheet" href="../css/information.css?v=8">
   <link rel="stylesheet" href="../css/mobile.css?v=5">
-  <script type="module" src="../js/campusvolt-telemetry.js?v=14"></script>
+  <script type="module" src="../js/campusvolt-telemetry.js?v=15"></script>
   <script type="module" src="../js/modules/kiosk-preferences.js?v=3"></script>
   <script type="module" src="../js/information-interactions.js?v=6"></script>
 </head>
@@ -92,7 +92,7 @@
             </svg>
             <div class="ring__label">
               <span class="ring__percent"><span id="battery-percent-value">85</span>%</span>
-              <span class="ring__caption">CHARGED</span>
+              <span class="ring__caption" id="battery-ring-caption">CHARGED</span>
             </div>
           </div>
 
@@ -110,6 +110,10 @@
           </div>
           <dl class="metric-details__grid">
             <div>
+              <dt>BMS connection</dt>
+              <dd id="battery-bms-link-value">Connected</dd>
+            </div>
+            <div>
               <dt>State of charge</dt>
               <dd><span id="battery-detail-soc-value">85</span>%</dd>
             </div>
@@ -124,6 +128,14 @@
             <div>
               <dt>Remaining energy</dt>
               <dd><span id="battery-remaining-kwh-value">1.09</span> kWh</dd>
+            </div>
+            <div>
+              <dt>Full capacity</dt>
+              <dd><span id="battery-capacity-ah-value">100.00</span> Ah</dd>
+            </div>
+            <div>
+              <dt>Remaining capacity</dt>
+              <dd><span id="battery-remaining-ah-value">85.00</span> Ah</dd>
             </div>
             <div>
               <dt>Pack voltage</dt>
@@ -144,6 +156,18 @@
             <div>
               <dt>State of health</dt>
               <dd><span id="battery-health-value">98</span>%</dd>
+            </div>
+            <div>
+              <dt>Cycle count</dt>
+              <dd id="battery-cycle-count-value">42</dd>
+            </div>
+            <div>
+              <dt>Minimum cell voltage</dt>
+              <dd><span id="battery-cell-min-value">3.330</span> V</dd>
+            </div>
+            <div>
+              <dt>Maximum cell voltage</dt>
+              <dd><span id="battery-cell-max-value">3.350</span> V</dd>
             </div>
             <div>
               <dt>Cell balance</dt>
