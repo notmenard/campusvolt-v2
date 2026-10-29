@@ -8,6 +8,10 @@ de-energized state until they are matched to the final schematic.
 ## Start here
 
 1. Install an ESP32 Arduino core and ArduinoJson 7.x.
+   In Arduino IDE select **Tools → Partition Scheme → Huge APP (3MB No
+   OTA/1MB SPIFFS)**. The combined Wi-Fi, TLS, BLE, relay, and coin firmware is
+   about 1.80 MB and does not fit the default 1.31 MB application partition.
+   This partition supports USB flashing but not OTA firmware updates.
 2. Copy `secrets.example.h` to `secrets.h`.
 3. Add the Wi-Fi credentials, the same station API key configured in Vercel,
    and the current trusted root CA for `campusvolt-v2.vercel.app`.
@@ -22,8 +26,9 @@ de-energized state until they are matched to the final schematic.
    directly to an ESP32 GPIO; it must remain behind the PC817 interface.
 6. Replace `readChannel()` with the two PZEM-004T adapters and four calibrated
    DC-channel adapters.
-7. Replace `readStationTelemetry()` with the Gentai BMS and solar-controller
-   adapters.
+7. The inspected BMC BLE battery protocol is integrated read-only. Confirm the
+   BMS name, MAC address, and nominal pack voltage in `secrets.h`. The solar
+   controller remains a safe zero placeholder.
 8. Add over-current, temperature, BMS, and emergency-stop shutdown rules to
    `maintainLocalElectricalSafety()`; these always override cloud commands.
 9. Confirm current direction: positive means charging the battery; negative
@@ -44,6 +49,25 @@ The cloud is never a safety controller: a local BMS, emergency-stop, thermal,
 or over-current condition must immediately de-energize the affected output.
 No response, malformed JSON, an expired lease, or an unconfigured pin must also
 leave the output off.
+
+## BLE BMS monitoring
+
+The production sketch now connects to `34:DA:4C:82:AC:2F`, subscribes to the
+known notification characteristic, and rotates the read-only battery-info,
+cell-voltage, and running-status requests every three seconds. It publishes
+SOC, pack voltage/current/power, temperature, remaining/full capacity, SOH,
+cycle count, and cell min/max/delta through the normal five-second heartbeat.
+
+The BMS phone application must be disconnected because this BMS accepts one
+BLE client at a time. A reading older than 20 seconds is reported as stale and
+`connected: false`; cached values are not presented as current measurements.
+Reconnect scanning is limited to three seconds and is attempted only while all
+relays and coin handling are idle, so a blocking BLE scan cannot starve an
+active relay lease or coin pulse workflow. The integration sends no FET,
+configuration, calibration, or clear-status commands. A fresh BMS protection
+bit immediately turns all relays off, rejects new relay-on commands, and is
+reported as a channel fault; warnings remain visible telemetry and do not
+independently switch loads.
 
 Do not use `WiFiClientSecure::setInsecure()` in a deployed kiosk. Cloud
 connectivity must never be required for over-current, temperature, BMS, relay,
