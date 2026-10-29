@@ -5,7 +5,9 @@
 #define CAMPUSVOLT_WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 #define CAMPUSVOLT_STATION_API_KEY "PASTE_THE_VERCEL_STATION_API_KEY"
 
-// DC-first test configuration traced from the 2026-10-28 schematic.
+// Final four-channel HW-298 mapping traced from the 2026-10-28 schematic:
+// Type-C GPIO25 -> IN1, Micro USB GPIO26 -> IN2,
+// Lightning GPIO32 -> IN3, Wireless GPIO5 -> IN4.
 // AC outlets remain disabled until the Q9/Q10 stages are tested separately.
 // Unconfigured outputs remain fail-closed and refuse relay-on commands.
 #define CAMPUSVOLT_RELAY_PIN_OUTLET_1 -1

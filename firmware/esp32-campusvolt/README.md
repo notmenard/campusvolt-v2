@@ -11,11 +11,18 @@ de-energized state until they are matched to the final schematic.
 2. Copy `secrets.example.h` to `secrets.h`.
 3. Add the Wi-Fi credentials, the same station API key configured in Vercel,
    and the current trusted root CA for `campusvolt-v2.vercel.app`.
-4. The initial DC-only mapping from the 2026-10-28 schematic is Type-C GPIO25,
-   Micro USB GPIO26, Lightning GPIO32, and Wireless GPIO5. Outlet 1 and
-   Outlet 2 remain `-1` until the Q9/Q10 stages are tested separately. Confirm
-   the four-relay module's trigger polarity before connecting any load; a pin
-   left at `-1` refuses on commands.
+4. Use the final four-channel HW-298 mapping from the 2026-10-28 schematic:
+
+   | Website channel | ESP32 GPIO | Relay input |
+   | --- | ---: | --- |
+   | Type-C | GPIO25 | IN1 |
+   | Micro USB | GPIO26 | IN2 |
+   | Lightning | GPIO32 | IN3 |
+   | Wireless | GPIO5 | IN4 |
+
+   Outlet 1 and Outlet 2 remain `-1` until the Q9/Q10 stages are tested
+   separately. The installed four-relay module is active-low; a pin left at
+   `-1` refuses on commands.
 5. The Allan selector signal is ESP32 GPIO27, confirmed by continuity from the
    PC817 output on the final assembly. The four-wire selector has no inhibit
    input, so leave the inhibit pin at `-1`. Never connect its 12 V COIN output

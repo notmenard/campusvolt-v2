@@ -47,8 +47,13 @@ const char* kChannelIds[] = {
 };
 constexpr size_t kChannelCount = sizeof(kChannelIds) / sizeof(kChannelIds[0]);
 
-// Define these six values in secrets.h after confirming the final schematic.
-// A value of -1 keeps that output fail-closed and refuses relay-on commands.
+// Final four-channel HW-298 relay mapping:
+//   Type-C    -> GPIO25 -> IN1
+//   Micro USB -> GPIO26 -> IN2
+//   Lightning -> GPIO32 -> IN3
+//   Wireless  -> GPIO5  -> IN4
+// AC outlet pins remain disabled until their separate Q9/Q10 stages are
+// confirmed. A value of -1 keeps an output fail-closed.
 #ifndef CAMPUSVOLT_RELAY_PIN_OUTLET_1
 #define CAMPUSVOLT_RELAY_PIN_OUTLET_1 -1
 #endif
@@ -56,16 +61,16 @@ constexpr size_t kChannelCount = sizeof(kChannelIds) / sizeof(kChannelIds[0]);
 #define CAMPUSVOLT_RELAY_PIN_OUTLET_2 -1
 #endif
 #ifndef CAMPUSVOLT_RELAY_PIN_TYPE_C
-#define CAMPUSVOLT_RELAY_PIN_TYPE_C -1
+#define CAMPUSVOLT_RELAY_PIN_TYPE_C 25
 #endif
 #ifndef CAMPUSVOLT_RELAY_PIN_MICRO_USB
-#define CAMPUSVOLT_RELAY_PIN_MICRO_USB -1
+#define CAMPUSVOLT_RELAY_PIN_MICRO_USB 26
 #endif
 #ifndef CAMPUSVOLT_RELAY_PIN_LIGHTNING
-#define CAMPUSVOLT_RELAY_PIN_LIGHTNING -1
+#define CAMPUSVOLT_RELAY_PIN_LIGHTNING 32
 #endif
 #ifndef CAMPUSVOLT_RELAY_PIN_WIRELESS
-#define CAMPUSVOLT_RELAY_PIN_WIRELESS -1
+#define CAMPUSVOLT_RELAY_PIN_WIRELESS 5
 #endif
 #ifndef CAMPUSVOLT_RELAY_ACTIVE_HIGH
 #define CAMPUSVOLT_RELAY_ACTIVE_HIGH 0
