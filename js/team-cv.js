@@ -117,7 +117,7 @@ const members = {
   },
   menard: {
     name: "Menard Arnel U. Sabugo",
-    role: "Hardware & Backend",
+    role: "Dashboard & Cloud Engineer",
     image: "../images/team/Sabugo.png",
     email: "menardsabugo@gmail.com",
     linkedin: "https://www.linkedin.com/in/menardsabugo-q",

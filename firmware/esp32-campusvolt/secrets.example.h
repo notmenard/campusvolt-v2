@@ -5,13 +5,6 @@
 #define CAMPUSVOLT_WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 #define CAMPUSVOLT_STATION_API_KEY "PASTE_THE_VERCEL_STATION_API_KEY"
 
-// Read-only BLE BMS monitoring. These defaults match the BMS inspected for
-// CampusVolt. The MAC address is the primary match because its advertised name
-// has also appeared as DCHAC2F. These values are device identifiers, not keys.
-#define CAMPUSVOLT_BMS_BLE_NAME "BMC1_AC2F"
-#define CAMPUSVOLT_BMS_BLE_ADDRESS "34:da:4c:82:ac:2f"
-#define CAMPUSVOLT_BMS_NOMINAL_VOLTAGE 12.8f
-
 // DC-first test configuration traced from the 2026-10-28 schematic.
 // AC outlets remain disabled until the Q9/Q10 stages are tested separately.
 // Unconfigured outputs remain fail-closed and refuse relay-on commands.

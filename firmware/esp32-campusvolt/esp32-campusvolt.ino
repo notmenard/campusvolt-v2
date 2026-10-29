@@ -1,16 +1,9 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <BLEAdvertisedDevice.h>
-#include <BLEClient.h>
-#include <BLEDevice.h>
-#include <BLERemoteCharacteristic.h>
-#include <BLERemoteService.h>
-#include <BLEScan.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
-#include <vector>
 
 #include "secrets.h"
 
@@ -18,33 +11,13 @@ namespace {
 constexpr char kApiUrl[] = "https://campusvolt-v2.vercel.app/api/station-status";
 constexpr char kCoinApiUrl[] = "https://campusvolt-v2.vercel.app/api/station-coins";
 constexpr char kStationId[] = "station-01";
-constexpr char kFirmwareVersion[] = "0.5.0-bms-ble-monitor";
+constexpr char kFirmwareVersion[] = "0.4.1-coin-pulse-debug";
 constexpr uint32_t kHeartbeatIntervalMs = 5000;
 constexpr uint32_t kWifiRetryIntervalMs = 5000;
 constexpr uint32_t kMaximumCommandLeaseMs = 15000;
 constexpr uint32_t kCoinPulseDebounceUs = 18000;
 constexpr uint32_t kCoinPulseTrainGapMs = 350;
 constexpr uint32_t kCoinRetryIntervalMs = 2000;
-constexpr uint32_t kBmsPollIntervalMs = 3000;
-constexpr uint32_t kBmsReconnectIntervalMs = 30000;
-constexpr uint32_t kBmsFreshnessMs = 20000;
-constexpr uint32_t kBmsConnectTimeoutMs = 5000;
-constexpr uint32_t kBmsScanSeconds = 3;
-
-#ifndef CAMPUSVOLT_BMS_BLE_NAME
-#define CAMPUSVOLT_BMS_BLE_NAME "BMC1_AC2F"
-#endif
-#ifndef CAMPUSVOLT_BMS_BLE_ADDRESS
-#define CAMPUSVOLT_BMS_BLE_ADDRESS "34:da:4c:82:ac:2f"
-#endif
-#ifndef CAMPUSVOLT_BMS_NOMINAL_VOLTAGE
-#define CAMPUSVOLT_BMS_NOMINAL_VOLTAGE 12.8f
-#endif
-
-constexpr char kBmsServiceUuid[] = "00000001-0000-1000-8000-00805f9b34fb";
-constexpr char kBmsCommandUuid[] = "00000002-0000-1000-8000-00805f9b34fb";
-constexpr char kBmsNotifyUuid[] = "00000003-0000-1000-8000-00805f9b34fb";
-constexpr uint8_t kBmsReadCommands[] = {0x21, 0x22, 0x20};
 
 #ifndef CAMPUSVOLT_COIN_SIGNAL_PIN
 #define CAMPUSVOLT_COIN_SIGNAL_PIN -1
@@ -123,44 +96,9 @@ struct StationTelemetry {
   float batteryPowerW;
   float batteryTemperatureC;
   const char* protection;
-  const char* batteryStatus;
-  bool hasBatteryDetails;
-  float ratedCapacityAh;
-  float ratedEnergyWh;
-  float remainingAh;
-  float remainingEnergyWh;
-  float healthPercent;
-  uint32_t cycleCount;
-  bool hasCellDetails;
-  float cellMinVoltageV;
-  float cellMaxVoltageV;
-  float cellDeltaMv;
   float solarPowerW;
   float solarEnergyTodayWh;
   float panelVoltageV;
-};
-
-struct BmsTelemetryState {
-  bool linkConnected;
-  float voltageV;
-  float currentA;
-  float soc;
-  float healthPercent;
-  float remainingAh;
-  float fullCapacityAh;
-  uint32_t cycleCount;
-  float batteryTemperatureC;
-  float mosTemperatureC;
-  float cellMinVoltageV;
-  float cellMaxVoltageV;
-  float cellDeltaMv;
-  uint8_t cellCount;
-  uint32_t statusBits;
-  uint32_t protectionMask;
-  uint32_t warningMask;
-  uint32_t batteryUpdatedAt;
-  uint32_t cellsUpdatedAt;
-  uint32_t statusUpdatedAt;
 };
 
 uint32_t lastHeartbeatAt = 0;
@@ -178,15 +116,6 @@ volatile uint32_t lastCoinPulseUs = 0;
 uint16_t lastReportedCoinPulseCount = 0;
 uint32_t coinEventSequence = 0;
 uint32_t lastCoinPostAttemptAt = 0;
-BLEClient* bmsClient = nullptr;
-BLERemoteCharacteristic* bmsCommandCharacteristic = nullptr;
-BLERemoteCharacteristic* bmsNotifyCharacteristic = nullptr;
-std::vector<uint8_t> bmsResponseFrame;
-uint32_t lastBmsPollAt = 0;
-uint32_t lastBmsReconnectAttemptAt = 0;
-size_t bmsReadCommandIndex = 0;
-portMUX_TYPE bmsStateMux = portMUX_INITIALIZER_UNLOCKED;
-BmsTelemetryState bmsState = {};
 
 struct PendingCoinEvent {
   bool active;
@@ -200,280 +129,6 @@ PendingCoinEvent pendingCoin = {false, "", "", 0, 0};
 // Forward declaration because coin-event delivery checks the synchronized
 // clock before the function's definition later in this translation unit.
 bool clockIsSynchronized();
-
-uint16_t readUint16Le(const uint8_t* data) {
-  return static_cast<uint16_t>(data[0])
-    | (static_cast<uint16_t>(data[1]) << 8);
-}
-
-uint32_t readUint32Le(const uint8_t* data) {
-  return static_cast<uint32_t>(data[0])
-    | (static_cast<uint32_t>(data[1]) << 8)
-    | (static_cast<uint32_t>(data[2]) << 16)
-    | (static_cast<uint32_t>(data[3]) << 24);
-}
-
-int32_t readInt32Le(const uint8_t* data) {
-  return static_cast<int32_t>(readUint32Le(data));
-}
-
-void setBmsLinkConnected(bool connected) {
-  portENTER_CRITICAL(&bmsStateMux);
-  bmsState.linkConnected = connected;
-  portEXIT_CRITICAL(&bmsStateMux);
-}
-
-bool bmsProtectionIsActive() {
-  uint32_t protectionMask;
-  uint32_t statusUpdatedAt;
-  portENTER_CRITICAL(&bmsStateMux);
-  protectionMask = bmsState.protectionMask;
-  statusUpdatedAt = bmsState.statusUpdatedAt;
-  portEXIT_CRITICAL(&bmsStateMux);
-  const uint32_t now = millis();
-  return statusUpdatedAt != 0 && now - statusUpdatedAt <= kBmsFreshnessMs && protectionMask != 0;
-}
-
-void parseBmsBatteryInfo(const uint8_t* data, size_t length) {
-  if (length < 26) {
-    Serial.printf("Rejected short BMS battery-info payload: %u bytes.\n", static_cast<unsigned>(length));
-    return;
-  }
-  const float voltageV = readInt32Le(data) / 1000.0f;
-  const float currentA = readInt32Le(data + 4) / 1000.0f;
-  const uint8_t soc = data[8];
-  const uint8_t health = data[9];
-  const float remainingAh = readUint32Le(data + 10) / 1000.0f;
-  const float fullCapacityAh = readUint32Le(data + 14) / 1000.0f;
-  const int8_t batteryTemperatureC = static_cast<int8_t>(data[20]);
-  const int8_t mosTemperatureC = static_cast<int8_t>(data[25]);
-  if (voltageV < 0.0f || voltageV > 100.0f || currentA < -200.0f || currentA > 200.0f
-      || soc > 100 || health > 100 || fullCapacityAh <= 0.0f || fullCapacityAh > 2000.0f
-      || remainingAh < 0.0f || remainingAh > 2000.0f
-      || batteryTemperatureC < -40 || batteryTemperatureC > 120) {
-    Serial.println("Rejected out-of-range BMS battery-info payload.");
-    return;
-  }
-
-  portENTER_CRITICAL(&bmsStateMux);
-  bmsState.voltageV = voltageV;
-  bmsState.currentA = currentA;
-  bmsState.soc = soc;
-  bmsState.healthPercent = health;
-  bmsState.remainingAh = remainingAh;
-  bmsState.fullCapacityAh = fullCapacityAh;
-  bmsState.cycleCount = readUint16Le(data + 18);
-  bmsState.batteryTemperatureC = batteryTemperatureC;
-  bmsState.mosTemperatureC = mosTemperatureC;
-  bmsState.batteryUpdatedAt = millis();
-  portEXIT_CRITICAL(&bmsStateMux);
-  Serial.printf("BMS: %.3f V, %.3f A, SOC %.0f%%, SOH %.0f%%.\n", voltageV, currentA, float(soc), float(health));
-}
-
-void parseBmsCellVoltages(const uint8_t* data, size_t length) {
-  const size_t availableCells = min(static_cast<size_t>(24), length / 2);
-  uint16_t minimumMv = UINT16_MAX;
-  uint16_t maximumMv = 0;
-  uint8_t cellCount = 0;
-  for (size_t index = 0; index < availableCells; ++index) {
-    const uint16_t millivolts = readUint16Le(data + index * 2);
-    if (millivolts == 0) continue;
-    if (millivolts > 6000) {
-      Serial.println("Rejected out-of-range BMS cell-voltage payload.");
-      return;
-    }
-    ++cellCount;
-    minimumMv = min(minimumMv, millivolts);
-    maximumMv = max(maximumMv, millivolts);
-  }
-  if (cellCount == 0) return;
-
-  portENTER_CRITICAL(&bmsStateMux);
-  bmsState.cellCount = cellCount;
-  bmsState.cellMinVoltageV = minimumMv / 1000.0f;
-  bmsState.cellMaxVoltageV = maximumMv / 1000.0f;
-  bmsState.cellDeltaMv = maximumMv - minimumMv;
-  bmsState.cellsUpdatedAt = millis();
-  portEXIT_CRITICAL(&bmsStateMux);
-  Serial.printf("BMS cells: %u, min %.3f V, max %.3f V, delta %u mV.\n",
-    cellCount, minimumMv / 1000.0f, maximumMv / 1000.0f, maximumMv - minimumMv);
-}
-
-void parseBmsRunningStatus(const uint8_t* data, size_t length) {
-  if (length < 8) {
-    Serial.printf("Rejected short BMS status payload: %u bytes.\n", static_cast<unsigned>(length));
-    return;
-  }
-  const uint32_t status = readUint32Le(data + 4);
-  const uint32_t protectionMask = status
-    & (0x0000003FUL | 0x00004000UL | 0x007F0000UL | 0x40000000UL);
-  const uint32_t warningMask = status & (0x00003F00UL | 0x3F000000UL);
-  portENTER_CRITICAL(&bmsStateMux);
-  bmsState.statusBits = status;
-  bmsState.protectionMask = protectionMask;
-  bmsState.warningMask = warningMask;
-  bmsState.statusUpdatedAt = millis();
-  portEXIT_CRITICAL(&bmsStateMux);
-  Serial.printf("BMS status 0x%08lX: protection %s, warnings %s.\n",
-    static_cast<unsigned long>(status), protectionMask ? "ACTIVE" : "normal",
-    warningMask ? "ACTIVE" : "none");
-}
-
-void parseBmsFrame(const std::vector<uint8_t>& frame) {
-  if (frame.size() < 5 || frame[0] != 0xAA) return;
-  const size_t payloadLength = frame[2];
-  if (frame.size() != payloadLength + 5) return;
-  uint16_t checksum = 0;
-  for (size_t index = 1; index < 3 + payloadLength; ++index) {
-    checksum = static_cast<uint16_t>(checksum + frame[index]);
-  }
-  if (checksum != readUint16Le(frame.data() + 3 + payloadLength)) {
-    Serial.println("Rejected BMS response with an invalid checksum.");
-    return;
-  }
-  const uint8_t command = frame[1];
-  const uint8_t* payload = frame.data() + 3;
-  if (command == 0x21) parseBmsBatteryInfo(payload, payloadLength);
-  else if (command == 0x22) parseBmsCellVoltages(payload, payloadLength);
-  else if (command == 0x20) parseBmsRunningStatus(payload, payloadLength);
-}
-
-void bmsNotificationCallback(
-  BLERemoteCharacteristic*, uint8_t* data, size_t length, bool
-) {
-  if (length > 0 && data[0] == 0xAA) bmsResponseFrame.clear();
-  if (bmsResponseFrame.empty() && (length == 0 || data[0] != 0xAA)) return;
-  bmsResponseFrame.insert(bmsResponseFrame.end(), data, data + length);
-  if (bmsResponseFrame.size() > 128) {
-    bmsResponseFrame.clear();
-    return;
-  }
-  if (bmsResponseFrame.size() >= 3) {
-    const size_t expectedLength = static_cast<size_t>(bmsResponseFrame[2]) + 5;
-    if (bmsResponseFrame.size() >= expectedLength) {
-      bmsResponseFrame.resize(expectedLength);
-      parseBmsFrame(bmsResponseFrame);
-      bmsResponseFrame.clear();
-    }
-  }
-}
-
-class BmsClientCallbacks : public BLEClientCallbacks {
- public:
-  void onConnect(BLEClient*) override {
-    setBmsLinkConnected(true);
-    Serial.println("BMS BLE connected.");
-  }
-
-  void onDisconnect(BLEClient*) override {
-    setBmsLinkConnected(false);
-    bmsCommandCharacteristic = nullptr;
-    bmsNotifyCharacteristic = nullptr;
-    bmsResponseFrame.clear();
-    Serial.println("BMS BLE disconnected; telemetry will fail closed when stale.");
-  }
-};
-
-BmsClientCallbacks bmsClientCallbacks;
-
-bool stationOutputsAreIdle() {
-  if (coinAcceptorEnabled || pendingCoin.active) return false;
-  for (bool relayState : relayStates) {
-    if (relayState) return false;
-  }
-  return true;
-}
-
-bool sendBmsReadRequest(uint8_t command) {
-  if (bmsClient == nullptr || !bmsClient->isConnected() || bmsCommandCharacteristic == nullptr) return false;
-  uint8_t frame[] = {0xAA, command, 0x00, command, 0x00};
-  return bmsCommandCharacteristic->writeValue(frame, sizeof(frame), true);
-}
-
-bool connectBmsIfIdle() {
-  if (bmsClient != nullptr && bmsClient->isConnected()) return true;
-  if (!stationOutputsAreIdle()) return false;
-  const uint32_t now = millis();
-  if (lastBmsReconnectAttemptAt != 0 && now - lastBmsReconnectAttemptAt < kBmsReconnectIntervalMs) return false;
-  lastBmsReconnectAttemptAt = now;
-
-  Serial.printf("Scanning %lu seconds for BMS %s (%s)...\n",
-    static_cast<unsigned long>(kBmsScanSeconds), CAMPUSVOLT_BMS_BLE_NAME, CAMPUSVOLT_BMS_BLE_ADDRESS);
-  BLEScan* scanner = BLEDevice::getScan();
-  scanner->setActiveScan(true);
-  scanner->setInterval(100);
-  scanner->setWindow(90);
-  BLEScanResults* results = scanner->start(kBmsScanSeconds, false);
-  if (results == nullptr) return false;
-
-  bool found = false;
-  BLEAdvertisedDevice target;
-  for (int index = 0; index < results->getCount(); ++index) {
-    BLEAdvertisedDevice candidate = results->getDevice(index);
-    const bool addressMatches = candidate.getAddress().toString().equalsIgnoreCase(CAMPUSVOLT_BMS_BLE_ADDRESS);
-    const bool nameMatches = candidate.haveName() && candidate.getName().equalsIgnoreCase(CAMPUSVOLT_BMS_BLE_NAME);
-    if (addressMatches || nameMatches) {
-      target = candidate;
-      found = true;
-      break;
-    }
-  }
-  if (!found) {
-    scanner->clearResults();
-    Serial.println("Configured BMS was not found.");
-    return false;
-  }
-
-  if (bmsClient == nullptr) {
-    bmsClient = BLEDevice::createClient();
-    bmsClient->setClientCallbacks(&bmsClientCallbacks);
-  }
-  Serial.println("Connecting to BMS...");
-  const bool connected = bmsClient->connectTimeout(&target, kBmsConnectTimeoutMs);
-  scanner->clearResults();
-  if (!connected) {
-    setBmsLinkConnected(false);
-    Serial.println("BMS connection failed. Close its phone app and keep the BMS awake.");
-    return false;
-  }
-
-  bmsClient->setMTU(185);
-  BLERemoteService* service = bmsClient->getService(BLEUUID(kBmsServiceUuid));
-  if (service == nullptr) {
-    Serial.println("BMS service was not found.");
-    bmsClient->disconnect();
-    return false;
-  }
-  bmsCommandCharacteristic = service->getCharacteristic(BLEUUID(kBmsCommandUuid));
-  bmsNotifyCharacteristic = service->getCharacteristic(BLEUUID(kBmsNotifyUuid));
-  if (bmsCommandCharacteristic == nullptr || bmsNotifyCharacteristic == nullptr
-      || !bmsCommandCharacteristic->canWrite() || !bmsNotifyCharacteristic->canNotify()) {
-    Serial.println("BMS command/notification characteristics are unavailable.");
-    bmsClient->disconnect();
-    return false;
-  }
-  bmsNotifyCharacteristic->registerForNotify(bmsNotificationCallback, true);
-  setBmsLinkConnected(true);
-  sendBmsReadRequest(0x00);
-  lastBmsPollAt = millis();
-  bmsReadCommandIndex = 0;
-  return true;
-}
-
-void maintainBmsMonitoring() {
-  if (bmsClient == nullptr || !bmsClient->isConnected()) {
-    setBmsLinkConnected(false);
-    connectBmsIfIdle();
-    return;
-  }
-  const uint32_t now = millis();
-  if (now - lastBmsPollAt < kBmsPollIntervalMs) return;
-  const uint8_t command = kBmsReadCommands[bmsReadCommandIndex];
-  if (sendBmsReadRequest(command)) {
-    bmsReadCommandIndex = (bmsReadCommandIndex + 1) % (sizeof(kBmsReadCommands) / sizeof(kBmsReadCommands[0]));
-  }
-  lastBmsPollAt = now;
-}
 
 void setCoinAcceptorEnabled(bool enabled) {
   // The four-wire Allan selector has no inhibit input. In that configuration
@@ -556,13 +211,6 @@ bool setRelayOutput(size_t index, bool enabled) {
     relayLeaseDeadlines[index] = 0;
     return false;
   }
-  if (enabled && bmsProtectionIsActive()) {
-    Serial.printf("Refusing relay-on for %s: BMS protection is active.\n", kChannelIds[index]);
-    writeRelayLevel(index, false);
-    relayStates[index] = false;
-    relayLeaseDeadlines[index] = 0;
-    return false;
-  }
   writeRelayLevel(index, enabled);
   relayStates[index] = enabled;
   if (!enabled) relayLeaseDeadlines[index] = 0;
@@ -584,71 +232,24 @@ ChannelReading readChannel(size_t channelIndex) {
   // Replace this safe placeholder with the calibrated PZEM/DC sensor adapter
   // for channelId. Never energize a relay solely because the cloud is online.
   (void)channelIndex;
-  return {
-    0.0f, 0.0f, 0.0f, relayStates[channelIndex],
-    bmsProtectionIsActive() ? "bms-protection" : nullptr
-  };
+  return {0.0f, 0.0f, 0.0f, relayStates[channelIndex], nullptr};
 }
 
 StationTelemetry readStationTelemetry() {
-  BmsTelemetryState snapshot;
-  portENTER_CRITICAL(&bmsStateMux);
-  snapshot = bmsState;
-  portEXIT_CRITICAL(&bmsStateMux);
-
-  const uint32_t now = millis();
-  const bool batteryFresh = snapshot.linkConnected && snapshot.batteryUpdatedAt != 0
-    && now - snapshot.batteryUpdatedAt <= kBmsFreshnessMs;
-  const bool statusFresh = snapshot.statusUpdatedAt != 0
-    && now - snapshot.statusUpdatedAt <= kBmsFreshnessMs;
-  const bool cellsFresh = snapshot.cellsUpdatedAt != 0
-    && now - snapshot.cellsUpdatedAt <= kBmsFreshnessMs;
-
-  StationTelemetry telemetry = {};
-  telemetry.bmsConnected = batteryFresh;
-  telemetry.protection = !snapshot.linkConnected ? "bms-disconnected"
-    : !batteryFresh ? "bms-data-stale"
-    : !statusFresh ? "status-stale"
-    : snapshot.protectionMask ? "active"
-    : snapshot.warningMask ? "warning" : "normal";
-  telemetry.batteryStatus = batteryFresh
-    ? (snapshot.currentA > 0.05f ? "charging" : snapshot.currentA < -0.05f ? "discharging" : "idle")
-    : "idle";
-  telemetry.solarPowerW = 0.0f;
-  telemetry.solarEnergyTodayWh = 0.0f;
-  telemetry.panelVoltageV = 0.0f;
-  if (!batteryFresh) return telemetry;
-
-  telemetry.soc = snapshot.soc;
-  telemetry.batteryVoltageV = snapshot.voltageV;
-  telemetry.batteryCurrentA = snapshot.currentA;
-  telemetry.batteryPowerW = snapshot.voltageV * snapshot.currentA;
-  telemetry.batteryTemperatureC = snapshot.batteryTemperatureC;
-  telemetry.hasBatteryDetails = true;
-  telemetry.ratedCapacityAh = snapshot.fullCapacityAh;
-  telemetry.ratedEnergyWh = snapshot.fullCapacityAh * CAMPUSVOLT_BMS_NOMINAL_VOLTAGE;
-  telemetry.remainingAh = snapshot.remainingAh;
-  telemetry.remainingEnergyWh = snapshot.remainingAh * snapshot.voltageV;
-  telemetry.healthPercent = snapshot.healthPercent;
-  telemetry.cycleCount = snapshot.cycleCount;
-  telemetry.hasCellDetails = cellsFresh && snapshot.cellCount > 0;
-  telemetry.cellMinVoltageV = snapshot.cellMinVoltageV;
-  telemetry.cellMaxVoltageV = snapshot.cellMaxVoltageV;
-  telemetry.cellDeltaMv = snapshot.cellDeltaMv;
-  return telemetry;
+  // Replace with the Gentai BMS and solar-controller adapters. Until then,
+  // report the BMS as disconnected so the website applies its safety pause.
+  return {
+    false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, "bms-disconnected",
+    0.0f, 0.0f, 0.0f
+  };
 }
 
 void maintainLocalElectricalSafety() {
-  // This must run independently of Wi-Fi and HTTP success. INA over-current,
-  // emergency-stop, and enclosure-temperature rules still need their final
-  // hardware adapters; an active, fresh BMS protection state is enforced now.
+  // Apply over-current, over-temperature, BMS, and emergency-stop rules here.
+  // This must run independently of Wi-Fi and HTTP success.
   const uint32_t now = millis();
-  const bool bmsProtectionActive = bmsProtectionIsActive();
   for (size_t index = 0; index < kChannelCount; ++index) {
-    if (relayStates[index] && bmsProtectionActive) {
-      Serial.printf("BMS protection is active; turning off %s.\n", kChannelIds[index]);
-      setRelayOutput(index, false);
-    } else if (relayStates[index]
+    if (relayStates[index]
         && (relayLeaseDeadlines[index] == 0
             || static_cast<int32_t>(now - relayLeaseDeadlines[index]) >= 0)) {
       Serial.printf("Relay lease expired for %s; turning output off.\n", kChannelIds[index]);
@@ -828,31 +429,6 @@ bool sendHeartbeat() {
   battery["powerW"] = reading.batteryPowerW;
   battery["temperatureC"] = reading.batteryTemperatureC;
   battery["protection"] = reading.protection;
-  battery["status"] = reading.batteryStatus;
-  if (reading.hasBatteryDetails) {
-    battery["ratedCapacityAh"] = reading.ratedCapacityAh;
-    battery["ratedEnergyWh"] = reading.ratedEnergyWh;
-    battery["remainingAh"] = reading.remainingAh;
-    battery["remainingEnergyWh"] = reading.remainingEnergyWh;
-    battery["healthPercent"] = reading.healthPercent;
-    battery["cycleCount"] = reading.cycleCount;
-  } else {
-    battery["ratedCapacityAh"] = nullptr;
-    battery["ratedEnergyWh"] = nullptr;
-    battery["remainingAh"] = nullptr;
-    battery["remainingEnergyWh"] = nullptr;
-    battery["healthPercent"] = nullptr;
-    battery["cycleCount"] = nullptr;
-  }
-  if (reading.hasCellDetails) {
-    battery["cellMinVoltageV"] = reading.cellMinVoltageV;
-    battery["cellMaxVoltageV"] = reading.cellMaxVoltageV;
-    battery["cellDeltaMv"] = reading.cellDeltaMv;
-  } else {
-    battery["cellMinVoltageV"] = nullptr;
-    battery["cellMaxVoltageV"] = nullptr;
-    battery["cellDeltaMv"] = nullptr;
-  }
 
   JsonObject solar = document["telemetry"]["solar"].to<JsonObject>();
   solar["powerW"] = reading.solarPowerW;
@@ -884,7 +460,6 @@ void setup() {
   bootId = esp_random();
   initializeRelaysFailClosed();
   initializeCoinAcceptorFailClosed();
-  BLEDevice::init("");
   WiFi.setAutoReconnect(true);
   connectWifiIfNeeded();
   configTime(0, 0, "pool.ntp.org", "time.google.com");
@@ -895,7 +470,6 @@ void loop() {
   reportCoinPulseProgress();
   captureCompletedCoinPulseTrain();
   postPendingCoinEvent();
-  maintainBmsMonitoring();
   connectWifiIfNeeded();
 
   const uint32_t now = millis();
